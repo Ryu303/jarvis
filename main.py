@@ -78,13 +78,14 @@ async def secure_headers_middleware(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"  # 클릭재킹 공격 방지
     response.headers["X-Content-Type-Options"] = "nosniff"  # MIME 스니핑 방지
     response.headers["X-XSS-Protection"] = "1; mode=block"  # 브라우저 내장 XSS 필터링 활성화
-    # Content Security Policy (기본 로컬 및 Google 폰트/스크립트 리소스만 허용)
+    # Content Security Policy (기본 로컬 및 Google 폰트/스크립트 리소스만 허용, base64 오디오 재생 위해 media-src 허용)
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "font-src 'self' https://fonts.gstatic.com; "
-        "img-src 'self' data: *;"
+        "img-src 'self' data: *; "
+        "media-src 'self' data:;"
     )
     return response
 
