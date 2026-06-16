@@ -682,6 +682,62 @@
                 font-size: 0.95rem;
             }
         }
+
+        /* Custom slider styles for the WAKE WORD switch */
+        .switch input:checked + .slider {
+            background-color: rgba(16, 185, 129, 0.2);
+            border-color: #10b981;
+            box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+        }
+        .switch .slider:before {
+            position: absolute;
+            content: "";
+            height: 12px;
+            width: 12px;
+            left: 3px;
+            bottom: 3px;
+            background-color: var(--text-muted);
+            transition: .4s;
+            border-radius: 50%;
+        }
+        .switch input:checked + .slider:before {
+            transform: translateX(14px);
+            background-color: #10b981;
+            box-shadow: 0 0 5px #10b981;
+        }
+
+        /* Terminal Widget glows */
+        .terminal-widget {
+            transition: all 0.5s ease;
+        }
+        .terminal-widget.glow-idle {
+            border-color: rgba(0, 242, 254, 0.6) !important;
+            box-shadow: 0 0 15px rgba(0, 242, 254, 0.3) !important;
+            animation: glowPulse 3s infinite alternate;
+        }
+        .terminal-widget.glow-listening {
+            border-color: rgba(16, 185, 129, 0.8) !important;
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.5) !important;
+            animation: listeningPulse 1s infinite alternate;
+        }
+        .terminal-widget.glow-thinking {
+            border-color: rgba(245, 158, 11, 0.8) !important;
+            box-shadow: 0 0 20px rgba(245, 158, 11, 0.5) !important;
+            animation: thinkingPulse 0.5s infinite alternate;
+        }
+
+        @keyframes glowPulse {
+            0% { box-shadow: 0 0 10px rgba(0, 242, 254, 0.15); }
+            100% { box-shadow: 0 0 20px rgba(0, 242, 254, 0.35); }
+        }
+        @keyframes listeningPulse {
+            0% { box-shadow: 0 0 12px rgba(16, 185, 129, 0.25); }
+            100% { box-shadow: 0 0 25px rgba(16, 185, 129, 0.55); }
+        }
+        @keyframes thinkingPulse {
+            0% { box-shadow: 0 0 10px rgba(245, 158, 11, 0.25); }
+            100% { box-shadow: 0 0 25px rgba(245, 158, 11, 0.65); }
+        }
     </style>
 </head>
 <body>
@@ -789,11 +845,21 @@
 
         <!-- JARVIS AI Terminal Widget -->
         <div class="terminal-widget">
-            <div class="widget-title" style="margin-bottom: 8px;">
-                자비스 AI 터미널 (JARVIS AI TERMINAL)
-                <svg viewBox="0 0 24 24" style="fill: #10b981; filter: drop-shadow(0 0 3px #10b981); width: 22px; height: 22px;">
-                    <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 12H4v-2h8v2zm8-4H4V8h16v4z"/>
-                </svg>
+            <div class="widget-title" style="margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    자비스 AI 터미널 (JARVIS AI TERMINAL)
+                    <svg viewBox="0 0 24 24" style="fill: #10b981; filter: drop-shadow(0 0 3px #10b981); width: 22px; height: 22px;">
+                        <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 12H4v-2h8v2zm8-4H4V8h16v4z"/>
+                    </svg>
+                </div>
+                <!-- WAKE WORD TOGGLE SWITCH -->
+                <div style="display: flex; align-items: center; gap: 8px; font-family: 'Orbitron', sans-serif; font-size: 0.75rem; letter-spacing: 1px; color: var(--text-muted);">
+                    <span>WAKE WORD</span>
+                    <label class="switch" style="position: relative; display: inline-block; width: 34px; height: 20px;">
+                        <input type="checkbox" id="wakeWordToggle" onchange="toggleWakeWord()" style="opacity: 0; width: 0; height: 0;">
+                        <span class="slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.1); border: 1px solid var(--border-color); transition: .4s; border-radius: 20px;"></span>
+                    </label>
+                </div>
             </div>
             
             <div id="chat-box">
@@ -1038,6 +1104,192 @@
             fetchUnreadEmails();
         }
 
+        let isProcessingChat = false; // 채팅 처리 중인지 여부를 저장하는 플래그
+        let wakeWordRecognition;
+        let isWakeWordListening = false;
+        let wakeWordTimeout = null;
+
+        // Web Audio API를 사용한 자비스 효과음 합성 함수
+        function playJarvisSound(type) {
+            try {
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                if (!AudioContextClass) return;
+                const ctx = new AudioContextClass();
+                const now = ctx.currentTime;
+                
+                if (type === 'wake_word') {
+                    // 자비스 호출 시: 주파수가 올라가는 미래지향적인 2단 비프음
+                    const osc1 = ctx.createOscillator();
+                    const gain1 = ctx.createGain();
+                    osc1.connect(gain1);
+                    gain1.connect(ctx.destination);
+                    osc1.type = 'sine';
+                    osc1.frequency.setValueAtTime(600, now);
+                    gain1.gain.setValueAtTime(0.08, now);
+                    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.06);
+                    osc1.start(now);
+                    osc1.stop(now + 0.06);
+                    
+                    const osc2 = ctx.createOscillator();
+                    const gain2 = ctx.createGain();
+                    osc2.connect(gain2);
+                    gain2.connect(ctx.destination);
+                    osc2.type = 'sine';
+                    osc2.frequency.setValueAtTime(800, now + 0.06);
+                    gain2.gain.setValueAtTime(0.08, now + 0.06);
+                    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.14);
+                    osc2.start(now + 0.06);
+                    osc2.stop(now + 0.14);
+                } else if (type === 'processing') {
+                    // 명령 전송 시: 짧은 고주파 알림음
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(1000, now);
+                    gain.gain.setValueAtTime(0.05, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                    osc.start(now);
+                    osc.stop(now + 0.1);
+                } else if (type === 'error') {
+                    // 오류 발생 시: 주파수가 낮아지는 저음 노이즈성 비프음
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(150, now);
+                    osc.frequency.linearRampToValueAtTime(80, now + 0.2);
+                    gain.gain.setValueAtTime(0.06, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                    osc.start(now);
+                    osc.stop(now + 0.2);
+                }
+            } catch (e) {
+                console.error("Failed to play Jarvis sound:", e);
+            }
+        }
+
+        // 터미널 위젯 테두리 글로우 효과 업데이트 함수
+        function updateTerminalGlow(active, state = 'idle') {
+            const widget = document.querySelector('.terminal-widget');
+            if (!widget) return;
+            
+            widget.classList.remove('glow-idle', 'glow-listening', 'glow-thinking');
+            
+            if (!active) {
+                widget.style.boxShadow = '';
+                widget.style.borderColor = '';
+                return;
+            }
+            
+            if (state === 'idle') {
+                widget.classList.add('glow-idle');
+            } else if (state === 'listening') {
+                widget.classList.add('glow-listening');
+            } else if (state === 'thinking') {
+                widget.classList.add('glow-thinking');
+            }
+        }
+
+        // 음성 호출(Wake Word) 감지기 초기화 함수
+        function initWakeWordListener() {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) return;
+
+            wakeWordRecognition = new SpeechRecognition();
+            wakeWordRecognition.lang = 'ko-KR';
+            wakeWordRecognition.continuous = true;
+            wakeWordRecognition.interimResults = true;
+
+            wakeWordRecognition.onstart = () => {
+                console.log("Wake word detection started...");
+                isWakeWordListening = true;
+                updateTerminalGlow(true, 'idle');
+            };
+
+            wakeWordRecognition.onend = () => {
+                console.log("Wake word detection ended.");
+                isWakeWordListening = false;
+                
+                const isToggled = document.getElementById('wakeWordToggle')?.checked;
+                if (isToggled && !isSpeechRecognizing && !isProcessingChat) {
+                    wakeWordTimeout = setTimeout(() => {
+                        if (document.getElementById('wakeWordToggle')?.checked) {
+                            startWakeWordListening();
+                        }
+                    }, 500);
+                } else {
+                    updateTerminalGlow(false);
+                }
+            };
+
+            wakeWordRecognition.onresult = (event) => {
+                const resultsLength = event.results.length;
+                const latestResult = event.results[resultsLength - 1];
+                const transcript = latestResult[0].transcript.trim();
+                console.log("WakeWord Interim:", transcript);
+
+                if (transcript.includes("자비스") || transcript.includes("자비스야")) {
+                    console.log("Wake word detected!");
+                    playJarvisSound('wake_word');
+                    stopWakeWordListening();
+                    
+                    // 조금의 지연을 주어 효과음이 울리는 동안 음성인식을 켬
+                    setTimeout(() => {
+                        startSpeechRecognition();
+                    }, 150);
+                }
+            };
+
+            wakeWordRecognition.onerror = (event) => {
+                console.error("Wake word recognition error:", event.error);
+            };
+        }
+
+        function startWakeWordListening() {
+            if (!wakeWordRecognition) initWakeWordListener();
+            if (isWakeWordListening) return;
+            try {
+                if (wakeWordTimeout) clearTimeout(wakeWordTimeout);
+                wakeWordRecognition.start();
+            } catch (e) {
+                console.error("Error starting wake word listener:", e);
+            }
+        }
+
+        function stopWakeWordListening() {
+            if (wakeWordTimeout) clearTimeout(wakeWordTimeout);
+            if (!isWakeWordListening || !wakeWordRecognition) return;
+            try {
+                wakeWordRecognition.stop();
+            } catch (e) {
+                console.error("Error stopping wake word listener:", e);
+            }
+        }
+
+        function toggleWakeWord() {
+            const toggle = document.getElementById('wakeWordToggle');
+            if (toggle.checked) {
+                startWakeWordListening();
+            } else {
+                stopWakeWordListening();
+                updateTerminalGlow(false);
+            }
+        }
+
+        // 자비스 말하기(음성 합성/재생)가 끝났을 때 자동 호출되는 콜백 함수
+        function onJarvisSpeakingFinished() {
+            isProcessingChat = false;
+            const toggle = document.getElementById('wakeWordToggle');
+            if (toggle && toggle.checked) {
+                startWakeWordListening();
+            } else {
+                updateTerminalGlow(false);
+            }
+        }
+
         // Gemini AI 채팅 전송 함수
         async function sendChatMessage() {
             const input = document.getElementById('terminalInput');
@@ -1057,7 +1309,12 @@
             chatBox.scrollTop = chatBox.scrollHeight;
 
             try {
-                // 3. 백엔드 /ai/chat 엔드포인트 호출
+                // 3. 백엔드 /ai/chat 엔드포인트 호출을 위한 상태 설정
+                isProcessingChat = true;
+                stopWakeWordListening();
+                updateTerminalGlow(true, 'thinking');
+                playJarvisSound('processing');
+
                 const response = await fetch('/ai/chat', {
                     method: 'POST',
                     headers: {
@@ -1094,6 +1351,8 @@
                     thinkingElement.remove();
                 }
                 appendChatMessage('system', `오류 발생: ${error.message || error}`);
+                playJarvisSound('error');
+                onJarvisSpeakingFinished();
             }
             
             chatBox.scrollTop = chatBox.scrollHeight;
@@ -1110,7 +1369,6 @@
                 messageDiv.id = id;
             }
             
-            // 줄바꿈 문자(\n) 지원
             messageDiv.innerText = text;
             chatBox.appendChild(messageDiv);
             chatBox.scrollTop = chatBox.scrollHeight;
@@ -1142,6 +1400,8 @@
 
             recognition.onstart = () => {
                 isSpeechRecognizing = true;
+                stopWakeWordListening();
+                updateTerminalGlow(true, 'listening');
                 voiceBtn.innerText = '🛑 음성 인식 중...';
                 voiceBtn.style.background = 'linear-gradient(135deg, #ef4444, #b91c1c)';
                 voiceBtn.style.boxShadow = '0 0 15px rgba(239, 68, 68, 0.5)';
@@ -1152,6 +1412,13 @@
                 voiceBtn.innerText = '🎤 음성 입력';
                 voiceBtn.style.background = 'linear-gradient(135deg, #dc2626, #991b1b)';
                 voiceBtn.style.boxShadow = 'none';
+                
+                // 대화 처리 중이 아니고 토글이 켜져있다면 다시 상시 대기
+                if (!isProcessingChat && document.getElementById('wakeWordToggle')?.checked) {
+                    startWakeWordListening();
+                } else if (!isProcessingChat) {
+                    updateTerminalGlow(false);
+                }
             };
 
             recognition.onerror = (event) => {
@@ -1172,25 +1439,30 @@
         function speak(text) {
             if (!window.speechSynthesis) {
                 console.warn("이 브라우저는 음성 합성을 지원하지 않습니다.");
+                onJarvisSpeakingFinished();
                 return;
             }
 
-            // 즉각 반응: 새로운 답변이 올 때 이전 음성 출력을 즉시 취소 및 정지
             window.speechSynthesis.cancel();
 
-            // 한글 및 기호 가독성을 위해 마크다운 특수문자나 괄호 등 일부 노이즈 정제
             const cleanText = text.replace(/[*_`#~\[\]\(\)]/g, ' ');
 
             const utterance = new SpeechSynthesisUtterance(cleanText);
             utterance.lang = 'ko-KR';
 
-            // 목소리 선택 (Voice Selection): 한국어 남성 보이스 우선 탐색 후 없으면 구글/마이크로소프트 우선 탐색
+            utterance.onend = () => {
+                onJarvisSpeakingFinished();
+            };
+            utterance.onerror = (event) => {
+                console.error("SpeechSynthesis error:", event);
+                onJarvisSpeakingFinished();
+            };
+
             const voices = window.speechSynthesis.getVoices();
             const koVoices = voices.filter(voice => voice.lang === 'ko-KR' || voice.lang.startsWith('ko'));
             
             console.log('Available Korean voices:', koVoices.map(v => v.name));
 
-            // 남성 목소리 키워드 매칭 (예: Microsoft InJoon, Minsu, 민수, male, 남성 등)
             let selectedVoice = koVoices.find(voice => 
                 voice.name.includes('InJoon') || 
                 voice.name.includes('Injoon') || 
@@ -1215,9 +1487,8 @@
                 utterance.voice = selectedVoice;
             }
 
-            // 톤 및 속도 설정 (Tone & Speed): 조금 더 빠르게 & 묵직하고 낮은 남성 톤
-            utterance.rate = 1.7;   // 빠르기 설정
-            utterance.pitch = 0.8;  // 목소리 톤 설정
+            utterance.rate = 1.7;   
+            utterance.pitch = 0.8;  
 
             window.speechSynthesis.speak(utterance);
         }
@@ -1230,6 +1501,11 @@
                 }
                 const audioUrl = "data:audio/mp3;base64," + base64String;
                 const audio = new Audio(audioUrl);
+                
+                audio.onended = () => {
+                    onJarvisSpeakingFinished();
+                };
+                
                 audio.play().catch(e => {
                     console.warn("Autoplay blocked or playback failed, falling back to browser TTS:", e);
                     speak(fallbackText);
