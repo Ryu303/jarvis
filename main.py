@@ -785,7 +785,9 @@ def get_current_time() -> str:
 
 def synthesize_speech(text: str) -> str:
     """구글 클라우드 Text-to-Speech API를 사용하여 텍스트를 고품질 남성 음성 MP3로 변환하고 base64 문자열로 반환합니다."""
-    if not GEMINI_API_KEY:
+    import os
+    api_key = os.getenv("GCP_API_KEY") or GEMINI_API_KEY
+    if not api_key:
         return None
     try:
         import urllib.request
@@ -794,7 +796,7 @@ def synthesize_speech(text: str) -> str:
         # HTML 태그나 특수 마크다운 등 일부 기호 정제
         clean_text = text.replace("*", " ").replace("_", " ").replace("`", " ").replace("#", " ")
         
-        url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={GEMINI_API_KEY}"
+        url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={api_key}"
         headers = {
             "Content-Type": "application/json"
         }
