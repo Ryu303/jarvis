@@ -1179,11 +1179,22 @@
             const utterance = new SpeechSynthesisUtterance(cleanText);
             utterance.lang = 'ko-KR';
 
-            // 목소리 선택 (Voice Selection): 'Google'이나 'Microsoft'가 포함된 한국어 보이스 우선 탐색
+            // 목소리 선택 (Voice Selection): 한국어 남성 보이스 우선 탐색 후 없으면 구글/마이크로소프트 우선 탐색
             const voices = window.speechSynthesis.getVoices();
             const koVoices = voices.filter(voice => voice.lang === 'ko-KR' || voice.lang.startsWith('ko'));
             
-            let selectedVoice = koVoices.find(voice => voice.name.includes('Google') || voice.name.includes('Microsoft'));
+            // 남성 목소리 키워드 매칭 (예: Microsoft InJoon, male, 남성 등)
+            let selectedVoice = koVoices.find(voice => 
+                voice.name.includes('InJoon') || 
+                voice.name.includes('Injoon') || 
+                voice.name.includes('In-Joon') || 
+                voice.name.toLowerCase().includes('male') ||
+                voice.name.includes('남성')
+            );
+            
+            if (!selectedVoice) {
+                selectedVoice = koVoices.find(voice => voice.name.includes('Google') || voice.name.includes('Microsoft'));
+            }
             
             if (!selectedVoice && koVoices.length > 0) {
                 selectedVoice = koVoices[0];
@@ -1193,9 +1204,9 @@
                 utterance.voice = selectedVoice;
             }
 
-            // 톤 및 속도 설정 (Tone & Speed): 침착하고 묵직한 자비스 톤
-            utterance.rate = 0.95;  // 약간 천천히
-            utterance.pitch = 0.9;  // 톤을 살짝 낮춤
+            // 톤 및 속도 설정 (Tone & Speed): 조금 더 빠르게 & 묵직하고 낮은 남성 톤
+            utterance.rate = 1.3;   // 빠르기 설정
+            utterance.pitch = 0.8;  // 목소리 톤 설정
 
             window.speechSynthesis.speak(utterance);
         }
