@@ -1,8 +1,10 @@
 fastapi
 uvicorn
+google-auth
 google-auth-oauthlib
+google-auth-httpx
 google-api-python-client
 python-dotenv
-itsdangerous
-jinja2
 google-generativeai
+jinja2
+itsdangerous
