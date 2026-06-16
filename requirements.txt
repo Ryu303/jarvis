@@ -8,3 +8,4 @@ google-generativeai
 jinja2
 itsdangerous
 python-multipart
+numpy
