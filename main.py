@@ -783,6 +783,48 @@ def get_current_time() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def synthesize_speech(text: str) -> str:
+    """구글 클라우드 Text-to-Speech API를 사용하여 텍스트를 고품질 남성 음성 MP3로 변환하고 base64 문자열로 반환합니다."""
+    if not GEMINI_API_KEY:
+        return None
+    try:
+        import urllib.request
+        import json
+        
+        # HTML 태그나 특수 마크다운 등 일부 기호 정제
+        clean_text = text.replace("*", " ").replace("_", " ").replace("`", " ").replace("#", " ")
+        
+        url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={GEMINI_API_KEY}"
+        headers = {
+            "Content-Type": "application/json"
+        }
+        body = {
+            "input": {"text": clean_text},
+            "voice": {
+                "languageCode": "ko-KR",
+                "name": "ko-KR-Wavenet-C",  # 프리미엄 남성 목소리
+                "ssmlGender": "MALE"
+            },
+            "audioConfig": {
+                "audioEncoding": "MP3",
+                "speakingRate": 1.7,  # 1.7배속
+                "pitch": -2.0         # 자비스 중저음 톤
+            }
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode("utf-8"),
+            headers=headers,
+            method="POST"
+        )
+        with urllib.request.urlopen(req) as response:
+            res_body = json.loads(response.read().decode("utf-8"))
+            return res_body.get("audioContent")
+    except Exception as e:
+        print("Google Cloud TTS Error:", e)
+        return None
+
+
 # Gemini Generative Model 설정 (모든 조회, 행동 및 감각 도구들 등록 및 시스템 지침 강화)
 if GEMINI_API_KEY:
     gemini_model = genai.GenerativeModel(
@@ -861,7 +903,10 @@ def ai_chat(payload: ChatMessageRequest):
         save_chat_message("user", user_message)
         save_chat_message("model", ai_response)
         
-        return {"response": ai_response}
+        # 5. 구글 클라우드 TTS를 사용해 고품질 음성 데이터 합성
+        audio_content = synthesize_speech(ai_response)
+        
+        return {"response": ai_response, "audio": audio_content}
     except Exception as e:
         print("Gemini API Error:")
         traceback.print_exc()

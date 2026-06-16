@@ -1080,7 +1080,12 @@
 
                 const aiResponse = data.response || '(답변을 받아오지 못했습니다.)';
                 appendChatMessage('jarvis', aiResponse);
-                speak(aiResponse);
+                
+                if (data.audio) {
+                    playBase64Audio(data.audio, aiResponse);
+                } else {
+                    speak(aiResponse);
+                }
                 
             } catch (error) {
                 console.error('Terminal chat error:', error);
@@ -1215,6 +1220,24 @@
             utterance.pitch = 0.8;  // 목소리 톤 설정
 
             window.speechSynthesis.speak(utterance);
+        }
+
+        // 구글 클라우드 TTS 오디오 재생 함수 (오토플레이 오류 시 브라우저 내장 TTS로 Fallback)
+        function playBase64Audio(base64String, fallbackText) {
+            try {
+                if (window.speechSynthesis) {
+                    window.speechSynthesis.cancel();
+                }
+                const audioUrl = "data:audio/mp3;base64," + base64String;
+                const audio = new Audio(audioUrl);
+                audio.play().catch(e => {
+                    console.warn("Autoplay blocked or playback failed, falling back to browser TTS:", e);
+                    speak(fallbackText);
+                });
+            } catch (e) {
+                console.error("Playback error:", e);
+                speak(fallbackText);
+            }
         }
 
         // 페이지 로드 즉시 실행 및 엔터 키 바인딩
