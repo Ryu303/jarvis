@@ -2,13 +2,15 @@ import os
 import traceback
 import base64
 import sqlite3
+import json
+import numpy as np
 from email.mime.text import MIMEText
 import google.generativeai as genai
 from pydantic import BaseModel
 from datetime import datetime, time
 from email.utils import parseaddr
 from email.header import decode_header, make_header
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, File, UploadFile, Form
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -47,6 +49,13 @@ def init_db():
             message TEXT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
             read INTEGER DEFAULT 0
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS voice_profiles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            features TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
     conn.commit()
@@ -799,6 +808,195 @@ def get_current_time() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def get_weather(location: str = "Seoul", day: str = "today") -> str:
+    """날씨 정보를 조회합니다. 오늘, 내일 혹은 모레(3일간)의 날씨 예보를 확인할 때 사용합니다.
+    인자:
+    - location: 조회할 지역명 (영문 또는 한글, 예: 'Seoul', 'Incheon', 'Busan', '서울', '인천', '부산')
+    - day: 조회할 날짜 ('today'는 오늘 날씨, 'tomorrow'는 내일 날씨, 'all'은 3일간의 전체 예보)
+    """
+    import urllib.request
+    import urllib.parse
+    import json
+    
+    encoded_location = urllib.parse.quote(location)
+    try:
+        url = f"https://wttr.in/{encoded_location}?format=j1"
+        req = urllib.request.Request(url, headers={"User-Agent": "curl"})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            
+        current = data.get("current_condition", [{}])[0]
+        temp_c = current.get("temp_C", "")
+        desc = current.get("weatherDesc", [{}])[0].get("value", "")
+        humidity = current.get("humidity", "")
+        
+        weather_days = data.get("weather", [])
+        if not weather_days:
+            return f"{location} 지역의 날씨 정보를 가져오지 못했습니다."
+            
+        # 오늘 날씨 정보 파싱
+        today_data = weather_days[0]
+        today_max = today_data.get("maxtempC", "")
+        today_min = today_data.get("mintempC", "")
+        today_desc = today_data.get("hourly", [{}])[4].get("weatherDesc", [{}])[0].get("value", "")
+        
+        if day == "today":
+            return (f"오늘 {location} 날씨는 현재 기온 {temp_c}도이며, 상태는 {desc}, 습도는 {humidity}%입니다. "
+                    f"오늘 최저 기온은 {today_min}도, 최고 기온은 {today_max}도입니다.")
+        
+        elif day == "tomorrow" and len(weather_days) > 1:
+            tomorrow_data = weather_days[1]
+            tomorrow_max = tomorrow_data.get("maxtempC", "")
+            tomorrow_min = tomorrow_data.get("mintempC", "")
+            hourly = tomorrow_data.get("hourly", [])
+            # 12시(낮)의 상태 조회
+            tomorrow_desc = ""
+            for h in hourly:
+                if h.get("time") == "1200":
+                    tomorrow_desc = h.get("weatherDesc", [{}])[0].get("value", "")
+            if not tomorrow_desc and hourly:
+                tomorrow_desc = hourly[len(hourly)//2].get("weatherDesc", [{}])[0].get("value", "")
+                
+            return (f"내일 {location} 날씨는 최저 기온 {tomorrow_min}도, 최고 기온 {tomorrow_max}도로 예상됩니다. "
+                    f"낮 기상은 주로 {tomorrow_desc} 상태일 것입니다.")
+        
+        else:
+            # 3일간의 날씨 예보
+            result = []
+            for i, w_day in enumerate(weather_days):
+                date_str = w_day.get("date", "")
+                max_t = w_day.get("maxtempC", "")
+                min_t = w_day.get("mintempC", "")
+                desc_str = w_day.get("hourly", [{}])[4].get("weatherDesc", [{}])[0].get("value", "")
+                day_label = "오늘" if i == 0 else "내일" if i == 1 else "모레"
+                result.append(f"- {day_label}({date_str}): 최저 {min_t}도 / 최고 {max_t}도, {desc_str}")
+            return f"{location} 지역의 3일간 날씨 예보입니다:\n" + "\n".join(result)
+            
+    except Exception as e:
+        return f"날씨 정보를 가져오는 중 오류가 발생했습니다: {str(e)}"
+
+
+def extract_mfcc_from_bytes(audio_bytes: bytes) -> np.ndarray:
+    """WAV 바이트 데이터로부터 MFCC(Mel-Frequency Cepstral Coefficients) 특징 벡터를 추출합니다.
+    NumPy만을 사용하여 가볍고 빠르게 동작합니다.
+    """
+    import io
+    import wave
+    try:
+        # wave 모듈을 사용해 WAV 파일 로드
+        with wave.open(io.BytesIO(audio_bytes), 'rb') as wav:
+            params = wav.getparams()
+            nchannels, sampwidth, framerate, nframes = params[:4]
+            # 16비트 PCM만 지원하도록 설정
+            if sampwidth != 2:
+                raise ValueError("Only 16-bit PCM WAV is supported")
+            
+            raw_data = wav.readframes(nframes)
+            # 16비트 signed integer로 변환
+            signal = np.frombuffer(raw_data, dtype=np.int16).astype(np.float32)
+            
+            # 스테레오일 경우 모노로 변환
+            if nchannels > 1:
+                signal = signal.reshape(-1, nchannels).mean(axis=1)
+                
+            # 신호 정규화 (-1.0 ~ 1.0)
+            signal /= 32768.0
+            
+    except Exception as e:
+        print(f"[MFCC Extractor] Error parsing WAV bytes: {e}")
+        return None
+
+    # MFCC 파라미터 설정
+    frame_len = int(0.025 * framerate) # 25ms
+    frame_step = int(0.010 * framerate) # 10ms
+    n_fft = 512
+    # 프레임 크기가 FFT 크기보다 작아야 함
+    if frame_len > n_fft:
+        frame_len = n_fft
+        
+    n_mfcc = 13
+    n_filters = 26
+    
+    # Pre-emphasis 필터 적용 (s(t) = x(t) - 0.97 * x(t-1))
+    signal = np.append(signal[0], signal[1:] - 0.97 * signal[:-1])
+    
+    # Framing & Windowing
+    signal_len = len(signal)
+    if signal_len <= frame_len:
+        # 너무 짧은 오디오 처리
+        return np.zeros(n_mfcc)
+        
+    num_frames = int(np.ceil(float(np.abs(signal_len - frame_len)) / frame_step))
+    pad_signal_len = num_frames * frame_step + frame_len
+    pad_signal = np.append(signal, np.zeros(pad_signal_len - signal_len))
+    
+    indices = np.tile(np.arange(0, frame_len), (num_frames, 1)) + \
+              np.tile(np.arange(0, num_frames * frame_step, frame_step), (frame_len, 1)).T
+    frames = pad_signal[indices.astype(np.int32, copy=False)]
+    
+    # Hamming window 적용
+    frames *= np.hamming(frame_len)
+    
+    # FFT & Power Spectrum 계산
+    mag_frames = np.absolute(np.fft.rfft(frames, n_fft))
+    pow_frames = (1.0 / n_fft) * (mag_frames ** 2)
+    
+    # Mel Filterbank 생성
+    def hz_to_mel(hz):
+        return 2595.0 * np.log10(1.0 + hz / 700.0)
+        
+    def mel_to_hz(mel):
+        return 700.0 * (10.0 ** (mel / 2595.0) - 1.0)
+        
+    low_mel = hz_to_mel(0)
+    high_mel = hz_to_mel(framerate / 2)
+    mel_pts = np.linspace(low_mel, high_mel, n_filters + 2)
+    hz_pts = mel_to_hz(mel_pts)
+    
+    bin_pts = np.floor((n_fft + 1) * hz_pts / framerate).astype(np.int32)
+    
+    fbank = np.zeros((n_filters, n_fft // 2 + 1))
+    for m in range(1, n_filters + 1):
+        f_m_minus = bin_pts[m - 1]
+        f_m = bin_pts[m]
+        f_m_plus = bin_pts[m + 1]
+        
+        for k in range(f_m_minus, f_m):
+            if f_m != f_m_minus:
+                fbank[m - 1, k] = (k - f_m_minus) / (f_m - f_m_minus)
+        for k in range(f_m, f_m_plus):
+            if f_m_plus != f_m:
+                fbank[m - 1, k] = (f_m_plus - k) / (f_m_plus - f_m)
+                
+    # Filterbank 적용 및 로그 에너지 계산
+    filter_energies = np.dot(pow_frames, fbank.T)
+    filter_energies = np.where(filter_energies == 0, np.finfo(float).eps, filter_energies)
+    log_filter_energies = np.log(filter_energies)
+    
+    # Discrete Cosine Transform (DCT)
+    dct_matrix = np.zeros((n_mfcc, n_filters))
+    for i in range(n_mfcc):
+        for j in range(n_filters):
+            dct_matrix[i, j] = np.cos(np.pi * i * (2.0 * j + 1.0) / (2.0 * n_filters))
+            
+    mfccs = np.dot(log_filter_energies, dct_matrix.T)
+    mean_mfcc = np.mean(mfccs, axis=0)
+    return mean_mfcc
+
+
+def calculate_voice_similarity(features1: np.ndarray, features2: np.ndarray) -> float:
+    """두 MFCC 특징 벡터 간의 코사인 유사도를 계산합니다. (0.0 ~ 1.0 범위로 정규화)"""
+    norm1 = np.linalg.norm(features1)
+    norm2 = np.linalg.norm(features2)
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
+    dot_product = np.dot(features1, features2)
+    cosine_sim = dot_product / (norm1 * norm2)
+    # Cosine similarity is in [-1, 1], normalize to [0, 1] for convenience
+    normalized_sim = (cosine_sim + 1.0) / 2.0
+    return float(normalized_sim)
+
+
 def save_user_profile(key: str, value: str) -> str:
     """사용자의 이름, 거주지, 관심사, 취미, 특별한 날, 좋아하는 음료 등 사용자 개인의 특성이나 중요 취향 정보를 자비스의 영구 기억 프로필에 기록하거나 업데이트합니다.
     인자:
@@ -980,9 +1178,9 @@ if GEMINI_API_KEY:
             check_today_schedule, check_unread_emails, Calendar, send_email, 
             search_drive_files, manage_tasks, append_sheet_data, delete_calendar_event, 
             clear_chat_history, get_current_time, save_user_profile, delete_user_profile,
-            read_drive_file_content, make_http_request
+            read_drive_file_content, make_http_request, get_weather
         ],
-        system_instruction="너는 사용자의 개인 비서 자비스(JARVIS)야. 너는 사용자에게 전달받은 함수(Tool)의 결과값을 단순 나열하지 않고, 지능적으로 분석하고 요약할 수 있는 능력이 있어. 메일 데이터를 받으면 본문 내용(Snippet)을 파악하여 중요도를 판단하고 친절하게 요약해 줘. 이제 너는 일정을 읽는 것뿐만 아니라 직접 캘린더에 일정을 생성하고, 직접 이메일을 발송할 수 있는 완벽한 비서야. 너는 이제 구글 드라이브 문서 검색, To-Do(할 일) 리스트 관리, 그리고 구글 스프레드시트에 데이터를 직접 기록할 수 있는 완벽한 전천후 비서야. 너는 이제 일정을 삭제하고 대화 기록을 초기화할 수 있는 관리 권한을 가졌어. 하지만 데이터 삭제는 위험한 작업이므로, 사용자가 삭제를 명확히 요청했을 때만 수행해. 삭제 도구를 호출하기 전, 만약 필요한 경우 사용자에게 한 번 더 확인할 수도 있어. 사용자가 일정을 등록, 추가, 생성해달라고 지시하면, 너의 임의 상상으로 등록이 완료되었다고 응답하지 말고, 반드시 Calendar 툴을 호출해 성공 결과(일정 링크 포함)를 직접 리턴받은 후 이를 바탕으로 사용자에게 답변하라. 또한, 사용자가 특정 일정이나 회의를 삭제해 달라고 요청하면, 먼저 check_today_schedule 등의 도구를 호출하여 삭제하고자 하는 일정의 고유 ID(event_id)를 찾은 뒤, delete_calendar_event 도구를 그 ID로 호출하여 삭제를 완료하라. 여러 일정을 지우고자 하거나 중복된 일정이 있다면, 각각의 ID를 확인하여 delete_calendar_event를 필요한 만큼 여러 번 호출하여 한 번에 지워라. 절대 사용자에게 고유 ID값을 직접 물어보지 말고, 도구 조회를 통해 스스로 알아내어 삭제하라. 사용자가 오늘, 내일, 특정 날짜/시간과 관련된 일정을 질문하거나 조작(생성, 삭제 등)을 요청할 때 정확한 기준 날짜/시간이 필요하다면, 반드시 get_current_time 도구를 먼저 호출하여 현재 실시간 시각을 확인한 뒤 연산하라. 사용자가 날씨, 뉴스 등 외부의 최신 실시간 정보를 요청하거나 API 조회를 원할 때는, 절대 기기나 직접 정보를 불러올 수 없다고 답하지 말고 반드시 make_http_request 도구를 호출하여 날씨 API(예: https://wttr.in/Seoul?format=3)나 신뢰할 수 있는 외부 공개 API를 요청하여 데이터를 획득한 후 답변을 가공해 설명하라. 사용자가 구글 드라이브의 문서 상세 본문 내용을 읽거나 분석/요약해달라고 요청하면, 먼저 search_drive_files로 파일을 찾은 뒤 해당 파일의 ID로 read_drive_file_content 도구를 호출하여 파일 내용을 읽어와 분석하고 요약하라. 또한, 너는 음성 비서이므로 사용자와 대화할 때 텍스트 답변이 구어체(말하는 말투)로 자연스럽고 매끄럽게 작성되도록 해줘. 글머리 기호(마크다운), 대괄호, 코드 블록, 특수 기호는 완전히 피하고, 실제 사람이 귀에 대고 말하듯이 부드럽고 격식 있는 문장으로 대답해라."
+        system_instruction="너는 사용자의 개인 비서 자비스(JARVIS)야. 너는 사용자에게 전달받은 함수(Tool)의 결과값을 단순 나열하지 않고, 지능적으로 분석하고 요약할 수 있는 능력이 있어. 메일 데이터를 받으면 본문 내용(Snippet)을 파악하여 중요도를 판단하고 친절하게 요약해 줘. 이제 너는 일정을 읽는 것뿐만 아니라 직접 캘린더에 일정을 생성하고, 직접 이메일을 발송할 수 있는 완벽한 비서야. 너는 이제 구글 드라이브 문서 검색, To-Do(할 일) 리스트 관리, 그리고 구글 스프레드시트에 데이터를 직접 기록할 수 있는 완벽한 전천후 비서야. 너는 이제 일정을 삭제하고 대화 기록을 초기화할 수 있는 관리 권한을 가졌어. 하지만 데이터 삭제는 위험한 작업이므로, 사용자가 삭제를 명확히 요청했을 때만 수행해. 삭제 도구를 호출하기 전, 만약 필요한 경우 사용자에게 한 번 더 확인할 수도 있어. 사용자가 일정을 등록, 추가, 생성해달라고 지시하면, 너의 임의 상상으로 등록이 완료되었다고 응답하지 말고, 반드시 Calendar 툴을 호출해 성공 결과(일정 링크 포함)를 직접 리턴받은 후 이를 바탕으로 사용자에게 답변하라. 또한, 사용자가 특정 일정이나 회의를 삭제해 달라고 요청하면, 먼저 check_today_schedule 등의 도구를 호출하여 삭제하고자 하는 일정의 고유 ID(event_id)를 찾은 뒤, delete_calendar_event 도구를 그 ID로 호출하여 삭제를 완료하라. 여러 일정을 지우고자 하거나 중복된 일정이 있다면, 각각의 ID를 확인하여 delete_calendar_event를 필요한 만큼 여러 번 호출하여 한 번에 지워라. 절대 사용자에게 고유 ID값을 직접 물어보지 말고, 도구 조회를 통해 스스로 알아내어 삭제하라. 사용자가 오늘, 내일, 특정 날짜/시간과 관련된 일정을 질문하거나 조작(생성, 삭제 등)을 요청할 때 정확한 기준 날짜/시간이 필요하다면, 반드시 get_current_time 도구를 먼저 호출하여 현재 실시간 시각을 확인한 뒤 연산하라. 사용자가 날씨 정보를 요청하거나 조회를 원할 때는, 절대 직접 정보를 불러올 수 없다고 답하지 말고 반드시 get_weather 도구를 호출하여 오늘, 내일 또는 3일간의 예보 등 필요한 날씨 데이터를 획득한 후 답변을 가공해 설명하라. 뉴스 등 기타 외부의 실시간 정보를 원할 때는 make_http_request 도구로 외부 공개 API를 요청하여 데이터를 획득하라. 사용자가 구글 드라이브의 문서 상세 본문 내용을 읽거나 분석/요약해달라고 요청하면, 먼저 search_drive_files로 파일을 찾은 뒤 해당 파일의 ID로 read_drive_file_content 도구를 호출하여 파일 내용을 읽어와 분석하고 요약하라. 또한, 너는 음성 비서이므로 사용자와 대화할 때 텍스트 답변이 구어체(말하는 말투)로 자연스럽고 매끄럽게 작성되도록 해줘. 글머리 기호(마크다운), 대괄호, 코드 블록, 특수 기호는 완전히 피하고, 실제 사람이 귀에 대고 말하듯이 부드럽고 격식 있는 문장으로 대답해라."
     )
 else:
     gemini_model = None
@@ -1030,17 +1228,13 @@ class ChatMessageRequest(BaseModel):
     message: str
 
 
-@app.post("/ai/chat")
-def ai_chat(payload: ChatMessageRequest):
-    """제미나이 AI와 대화하는 채팅 엔드포인트 (기억 조회 및 저장 반영)"""
+def execute_ai_chat(user_message: str) -> dict:
     if not GEMINI_API_KEY:
         return {
             "response": "서버의 .env 파일에 GEMINI_API_KEY가 설정되지 않았습니다. API 키를 먼저 등록해 주세요."
         }
         
     try:
-        user_message = payload.message
-        
         # 1. 사용자 장기 프로필 DB 조회 및 포맷팅
         profiles = get_all_user_profiles()
         if profiles:
@@ -1049,7 +1243,7 @@ def ai_chat(payload: ChatMessageRequest):
             profiles_str = "(현재 기억된 사용자 프로필 정보 없음)"
             
         # 2. 동적 시스템 명령 생성 (장기 프로필 인젝션)
-        base_instruction = "너는 사용자의 개인 비서 자비스(JARVIS)야. 너는 사용자에게 전달받은 함수(Tool)의 결과값을 단순 나열하지 않고, 지능적으로 분석하고 요약할 수 있는 능력이 있어. 메일 데이터를 받으면 본문 내용(Snippet)을 파악하여 중요도를 판단하고 친절하게 요약해 줘. 이제 너는 일정을 읽는 것뿐만 아니라 직접 캘린더에 일정을 생성하고, 직접 이메일을 발송할 수 있는 완벽한 비서야. 너는 이제 구글 드라이브 문서 검색, To-Do(할 일) 리스트 관리, 그리고 구글 스프레드시트에 데이터를 직접 기록할 수 있는 완벽한 전천후 비서야. 너는 이제 일정을 삭제하고 대화 기록을 초기화할 수 있는 관리 권한을 가졌어. 하지만 데이터 삭제는 위험한 작업이므로, 사용자가 삭제를 명확히 요청했을 때만 수행해. 삭제 도구를 호출하기 전, 만약 필요한 경우 사용자에게 한 번 더 확인할 수도 있어. 사용자가 일정을 등록, 추가, 생성해달라고 지시하면, 너의 임의 상상으로 등록이 완료되었다고 응답하지 말고, 반드시 Calendar 툴을 호출해 성공 결과(일정 링크 포함)를 직접 리턴받은 후 이를 바탕으로 사용자에게 답변하라. 또한, 사용자가 특정 일정이나 회의를 삭제해 달라고 요청하면, 먼저 check_today_schedule 등의 도구를 호출하여 삭제하고자 하는 일정의 고유 ID(event_id)를 찾은 뒤, delete_calendar_event 도구를 그 ID로 호출하여 삭제를 완료하라. 여러 일정을 지우고자 하거나 중복된 일정이 있다면, 각각의 ID를 확인하여 delete_calendar_event를 필요한 만큼 여러 번 호출하여 한 번에 지워라. 절대 사용자에게 고유 ID값을 직접 물어보지 말고, 도구 조회를 통해 스스로 알아내어 삭제하라. 사용자가 오늘, 내일, 특정 날짜/시간과 관련된 일정을 질문하거나 조작(생성, 삭제 등)을 요청할 때 정확한 기준 날짜/시간이 필요하다면, 반드시 get_current_time 도구를 먼저 호출하여 현재 실시간 시각을 확인한 뒤 연산하라. 사용자가 날씨, 뉴스 등 외부의 최신 실시간 정보를 요청하거나 API 조회를 원할 때는, 절대 기기나 직접 정보를 불러올 수 없다고 답하지 말고 반드시 make_http_request 도구를 호출하여 날씨 API(예: https://wttr.in/Seoul?format=3)나 신뢰할 수 있는 외부 공개 API를 요청하여 데이터를 획득한 후 답변을 가공해 설명하라. 사용자가 구글 드라이브의 문서 상세 본문 내용을 읽거나 분석/요약해달라고 요청하면, 먼저 search_drive_files로 파일을 찾은 뒤 해당 파일의 ID로 read_drive_file_content 도구를 호출하여 파일 내용을 읽어와 분석하고 요약하라. 또한, 너는 음성 비서이므로 사용자와 대화할 때 텍스트 답변이 구어체(말하는 말투)로 자연스럽고 매끄럽게 작성되도록 해줘. 글머리 기호(마크다운), 대괄호, 코드 블록, 특수 기호는 완전히 피하고, 실제 사람이 귀에 대고 말하듯이 부드럽고 격식 있는 문장으로 대답해라."
+        base_instruction = "너는 사용자의 개인 비서 자비스(JARVIS)야. 너는 사용자에게 전달받은 함수(Tool)의 결과값을 단순 나열하지 않고, 지능적으로 분석하고 요약할 수 있는 능력이 있어. 메일 데이터를 받으면 본문 내용(Snippet)을 파악하여 중요도를 판단하고 친절하게 요약해 줘. 이제 너는 일정을 읽는 것뿐만 아니라 직접 캘린더에 일정을 생성하고, 직접 이메일을 발송할 수 있는 완벽한 비서야. 너는 이제 구글 드라이브 문서 검색, To-Do(할 일) 리스트 관리, 그리고 구글 스프레드시트에 데이터를 직접 기록할 수 있는 완벽한 전천후 비서야. 너는 이제 일정을 삭제하고 대화 기록을 초기화할 수 있는 관리 권한을 가졌어. 하지만 데이터 삭제는 위험한 작업이므로, 사용자가 삭제를 명확히 요청했을 때만 수행해. 삭제 도구를 호출하기 전, 만약 필요한 경우 사용자에게 한 번 더 확인할 수도 있어. 사용자가 일정을 등록, 추가, 생성해달라고 지시하면, 너의 임의 상상으로 등록이 완료되었다고 응답하지 말고, 반드시 Calendar 툴을 호출해 성공 결과(일정 링크 포함)를 직접 리턴받은 후 이를 바탕으로 사용자에게 답변하라. 또한, 사용자가 특정 일정이나 회의를 삭제해 달라고 요청하면, 먼저 check_today_schedule 등의 도구를 호출하여 삭제하고자 하는 일정의 고유 ID(event_id)를 찾은 뒤, delete_calendar_event 도구를 그 ID로 호출하여 삭제를 완료하라. 여러 일정을 지우고자 하거나 중복된 일정이 있다면, 각각의 ID를 확인하여 delete_calendar_event를 필요한 만큼 여러 번 호출하여 한 번에 지워라. 절대 사용자에게 고유 ID값을 직접 물어보지 말고, 도구 조회를 통해 스스로 알아내어 삭제하라. 사용자가 오늘, 내일, 특정 날짜/시간과 관련된 일정을 질문하거나 조작(생성, 삭제 등)을 요청할 때 정확한 기준 날짜/시간이 필요하다면, 반드시 get_current_time 도구를 먼저 호출하여 현재 실시간 시각을 확인한 뒤 연산하라. 사용자가 날씨 정보를 요청하거나 조회를 원할 때는, 절대 직접 정보를 불러올 수 없다고 답하지 말고 반드시 get_weather 도구를 호출하여 오늘, 내일 또는 3일간의 예보 등 필요한 날씨 데이터를 획득한 후 답변을 가공해 설명하라. 뉴스 등 기타 외부의 실시간 정보를 원할 때는 make_http_request 도구로 외부 공개 API를 요청하여 데이터를 획득하라. 사용자가 구글 드라이브의 문서 상세 본문 내용을 읽거나 분석/요약해달라고 요청하면, 먼저 search_drive_files로 파일을 찾은 뒤 해당 파일의 ID로 read_drive_file_content 도구를 호출하여 파일 내용을 읽어와 분석하고 요약하라. 또한, 너는 음성 비서이므로 사용자와 대화할 때 텍스트 답변이 구어체(말하는 말투)로 자연스럽고 매끄럽게 작성되도록 해줘. 글머리 기호(마크다운), 대괄호, 코드 블록, 특수 기호는 완전히 피하고, 실제 사람이 귀에 대고 말하듯이 부드럽고 격식 있는 문장으로 대답해라."
         
         dynamic_instruction = (
             f"{base_instruction}\n\n"
@@ -1064,7 +1258,7 @@ def ai_chat(payload: ChatMessageRequest):
                 check_today_schedule, check_unread_emails, Calendar, send_email, 
                 search_drive_files, manage_tasks, append_sheet_data, delete_calendar_event, 
                 clear_chat_history, get_current_time, save_user_profile, delete_user_profile,
-                read_drive_file_content, make_http_request
+                read_drive_file_content, make_http_request, get_weather
             ],
             system_instruction=dynamic_instruction
         )
@@ -1091,7 +1285,6 @@ def ai_chat(payload: ChatMessageRequest):
         print("Gemini API Error:")
         traceback.print_exc()
         
-        # API 소진 및 호출 한도 초과(429, ResourceExhausted) 예외 감지
         error_msg = str(e)
         if "429" in error_msg or "ResourceExhausted" in error_msg or "quota" in error_msg.lower() or "exhausted" in error_msg.lower():
             return {
@@ -1099,6 +1292,99 @@ def ai_chat(payload: ChatMessageRequest):
             }
             
         return {"response": f"자비스 AI 코어 응답 생성 중 오류 발생: {str(e)}"}
+
+
+@app.post("/ai/chat")
+def ai_chat(payload: ChatMessageRequest):
+    """제미나이 AI와 대화하는 채팅 엔드포인트 (기억 조회 및 저장 반영)"""
+    return execute_ai_chat(payload.message)
+
+
+@app.post("/api/voice/register")
+async def register_voice(file: UploadFile = File(...)):
+    """사용자 음성을 분석하여 특징 벡터를 추출한 뒤 DB에 등록합니다."""
+    try:
+        audio_bytes = await file.read()
+        features = extract_mfcc_from_bytes(audio_bytes)
+        if features is None or np.all(features == 0):
+            raise ValueError("Failed to extract MFCC features or audio is too short")
+        
+        conn = sqlite3.connect("jarvis_memory.db")
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM voice_profiles")
+        cursor.execute("INSERT INTO voice_profiles (features) VALUES (?)", (json.dumps(features.tolist()),))
+        conn.commit()
+        conn.close()
+        
+        return {"status": "success", "message": "목소리 성문 등록이 성공적으로 완료되었습니다."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"목소리 등록 실패: {str(e)}")
+
+
+@app.get("/api/voice/status")
+def get_voice_status():
+    """목소리 성문이 등록되어 있는지 여부를 확인합니다."""
+    try:
+        conn = sqlite3.connect("jarvis_memory.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM voice_profiles ORDER BY id DESC LIMIT 1")
+        row = cursor.fetchone()
+        conn.close()
+        return {"registered": row is not None}
+    except Exception:
+        return {"registered": False}
+
+
+@app.post("/ai/chat/voice")
+async def ai_chat_voice(
+    message: str = Form(...),
+    voice_lock: bool = Form(False),
+    voice_file: UploadFile = File(None)
+):
+    """음성 일치 검증을 거친 후 제미나이 AI와 대화하는 멀티파트 엔드포인트"""
+    if voice_lock:
+        try:
+            # 1. DB에서 기등록된 사용자 성문 데이터 조회
+            conn = sqlite3.connect("jarvis_memory.db")
+            cursor = conn.cursor()
+            cursor.execute("SELECT features FROM voice_profiles ORDER BY id DESC LIMIT 1")
+            row = cursor.fetchone()
+            conn.close()
+            
+            if not row:
+                return {
+                    "response": "⚠️ VOICE LOCK이 활성화되어 있으나, 등록된 목소리 성문이 없습니다. 시스템 Status 패널에서 목소리를 먼저 등록해 주세요."
+                }
+                
+            if not voice_file:
+                return {
+                    "response": "⚠️ VOICE LOCK이 활성화되어 있으나, 명령 음성 데이터가 전달되지 않았습니다."
+                }
+                
+            # 2. 전달받은 음성의 특징 벡터 추출
+            audio_bytes = await voice_file.read()
+            test_features = extract_mfcc_from_bytes(audio_bytes)
+            if test_features is None:
+                return {
+                    "response": "⚠️ 오디오 데이터 파싱에 실패했습니다. (16-bit PCM WAV 형식이 맞는지 확인해 주세요)"
+                }
+                
+            # 3. 코사인 유사도 계산
+            stored_features = np.array(json.loads(row[0]))
+            similarity = calculate_voice_similarity(stored_features, test_features)
+            print(f"[Voice Lock] Cosine Similarity: {similarity*100:.2f}%")
+            
+            # 유사도 기준선 설정 (85% 미만인 경우 거부)
+            if similarity < 0.85:
+                return {
+                    "response": f"⚠️ [VOICE LOCK 거부] 등록되지 않은 목소리입니다. (유사도: {similarity*100:.1f}%)"
+                }
+                
+        except Exception as e:
+            return {"response": f"자비스 목소리 잠금 확인 중 오류 발생: {str(e)}"}
+            
+    # 검증 통과 시 혹은 Lock 비활성화 시 대화 실행
+    return execute_ai_chat(message)
 
 
 @app.delete("/ai/chat/history")
