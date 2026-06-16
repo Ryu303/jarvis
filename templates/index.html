@@ -1,0 +1,1218 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS Command Center</title>
+    <!-- Google Fonts: Orbitron (Futuristic) and Outfit (Clean modern) -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0a0e17;
+            --card-bg: rgba(16, 24, 48, 0.45);
+            --border-color: rgba(0, 242, 254, 0.2);
+            --primary-neon: #00f2fe;
+            --secondary-neon: #4facfe;
+            --text-color: #e2e8f0;
+            --text-muted: #94a3b8;
+            --shadow-glow: 0 0 15px rgba(0, 242, 254, 0.25);
+            --glass-blur: blur(12px);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(16, 24, 48, 0.5) 0px, transparent 50%),
+                radial-gradient(at 50% 0%, rgba(0, 242, 254, 0.08) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(79, 172, 254, 0.05) 0px, transparent 50%);
+            background-attachment: fixed;
+            color: var(--text-color);
+            font-family: 'Outfit', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        /* Header Styles */
+        header {
+            width: 100%;
+            padding: 24px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(10, 14, 23, 0.7);
+            backdrop-filter: var(--glass-blur);
+            z-index: 10;
+        }
+
+        .logo-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-glow {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background-color: var(--primary-neon);
+            box-shadow: 0 0 10px var(--primary-neon), 0 0 20px var(--primary-neon);
+            animation: pulse 2s infinite alternate;
+        }
+
+        h1 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 900;
+            letter-spacing: 3px;
+            background: linear-gradient(135deg, var(--primary-neon), var(--secondary-neon));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-transform: uppercase;
+        }
+
+        .status-badge {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.8rem;
+            letter-spacing: 1px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            border: 1px solid var(--border-color);
+            background: rgba(0, 242, 254, 0.05);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .status-badge.connected {
+            border-color: rgba(0, 242, 254, 0.5);
+            color: var(--primary-neon);
+            box-shadow: 0 0 8px rgba(0, 242, 254, 0.15);
+        }
+
+        .status-badge.disconnected {
+            border-color: rgba(239, 68, 68, 0.4);
+            color: #ef4444;
+            background: rgba(239, 68, 68, 0.05);
+        }
+
+        .status-badge .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-badge.connected .dot {
+            background-color: var(--primary-neon);
+            box-shadow: 0 0 6px var(--primary-neon);
+        }
+
+        .status-badge.disconnected .dot {
+            background-color: #ef4444;
+            box-shadow: 0 0 6px #ef4444;
+        }
+
+        /* Main Content Grid */
+        main {
+            flex: 1;
+            padding: 40px;
+            max-width: 1400px;
+            width: 100%;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        /* Connection Section (Not Logged In) */
+        .connect-container {
+            max-width: 550px;
+            width: 100%;
+            margin: 0 auto;
+            text-align: center;
+            padding: 50px 40px;
+            border-radius: 20px;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            backdrop-filter: var(--glass-blur);
+            box-shadow: var(--shadow-glow);
+            animation: fadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .connect-icon-wrapper {
+            position: relative;
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 30px;
+            border: 2px solid var(--primary-neon);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 15px rgba(0, 242, 254, 0.3);
+        }
+
+        .connect-icon-wrapper::after {
+            content: '';
+            position: absolute;
+            width: 94px;
+            height: 94px;
+            border: 1px dashed var(--secondary-neon);
+            border-radius: 50%;
+            animation: spin 10s linear infinite;
+        }
+
+        .connect-icon-wrapper svg {
+            width: 36px;
+            height: 36px;
+            fill: var(--primary-neon);
+        }
+
+        .connect-container h2 {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.8rem;
+            margin-bottom: 16px;
+            letter-spacing: 1px;
+            color: #ffffff;
+        }
+
+        .connect-container p {
+            color: var(--text-muted);
+            line-height: 1.6;
+            margin-bottom: 35px;
+            font-size: 1.05rem;
+        }
+
+        .btn-connect {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 32px;
+            background: linear-gradient(135deg, var(--primary-neon), var(--secondary-neon));
+            color: #050508;
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+            font-size: 1rem;
+            letter-spacing: 2px;
+            text-decoration: none;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 242, 254, 0.3);
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn-connect:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 30px rgba(0, 242, 254, 0.5), 0 0 15px var(--primary-neon);
+        }
+
+        .btn-connect:active {
+            transform: translateY(-1px);
+        }
+
+        /* Dashboard Grid (Logged In) */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 30px;
+            width: 100%;
+            animation: fadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @media (max-width: 1100px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .widget {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 30px;
+            backdrop-filter: var(--glass-blur);
+            transition: all 0.4s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .widget::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary-neon), transparent);
+        }
+
+        .widget:hover {
+            border-color: rgba(0, 242, 254, 0.4);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .widget-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: 2px;
+            color: #ffffff;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            padding-bottom: 12px;
+        }
+
+        .widget-title svg {
+            width: 20px;
+            height: 20px;
+            fill: var(--primary-neon);
+            filter: drop-shadow(0 0 3px var(--primary-neon));
+        }
+
+        /* Calendar List Styles */
+        .events-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .event-card {
+            background: rgba(255, 255, 255, 0.03);
+            border-left: 3px solid var(--secondary-neon);
+            padding: 16px;
+            border-radius: 0 12px 12px 0;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .event-card:hover {
+            background: rgba(0, 242, 254, 0.05);
+            border-left-color: var(--primary-neon);
+            transform: translateX(4px);
+        }
+
+        .event-title {
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 8px;
+        }
+
+        .event-time {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .event-time svg {
+            width: 14px;
+            height: 14px;
+            fill: var(--text-muted);
+        }
+
+        /* Empty / Loading States */
+        .empty-state, .loading-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px 0;
+            text-align: center;
+            color: var(--text-muted);
+            gap: 16px;
+        }
+
+        .empty-state svg, .loading-state svg {
+            width: 48px;
+            height: 48px;
+            fill: rgba(0, 242, 254, 0.2);
+        }
+
+        .loading-state svg {
+            animation: pulse 1.5s infinite alternate;
+            fill: var(--primary-neon);
+        }
+
+        /* Gmail List Styles */
+        .email-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .email-card {
+            background: rgba(255, 255, 255, 0.03);
+            border-left: 3px solid #f59e0b;
+            padding: 16px;
+            border-radius: 0 12px 12px 0;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .email-card:hover {
+            background: rgba(245, 158, 11, 0.05);
+            border-left-color: #fbbf24;
+            transform: translateX(4px);
+        }
+
+        .email-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 10px;
+            margin-bottom: 6px;
+        }
+
+        .email-sender {
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: #fbbf24;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 240px;
+        }
+
+        .email-subject {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #ffffff;
+            margin-bottom: 6px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .email-snippet {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* System Status Widget Styles (Right Panel) */
+        .system-status {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.02);
+            padding: 16px 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .status-label {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+        }
+
+        .status-val {
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+            color: var(--primary-neon);
+            text-shadow: 0 0 5px rgba(0, 242, 254, 0.3);
+        }
+
+        .system-controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 15px;
+        }
+
+        .btn-action {
+            flex: 1;
+            padding: 14px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-color);
+            font-family: 'Orbitron', sans-serif;
+            font-weight: bold;
+            font-size: 0.85rem;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-align: center;
+            text-decoration: none;
+        }
+
+        .btn-action:hover {
+            background: rgba(0, 242, 254, 0.1);
+            border-color: var(--primary-neon);
+            color: var(--primary-neon);
+            box-shadow: 0 0 10px rgba(0, 242, 254, 0.15);
+        }
+
+        /* Animations */
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.7; }
+            100% { transform: scale(1.05); opacity: 1; }
+        }
+
+        @keyframes spin {
+            100% { transform: rotate(360deg); }
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(15px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* JARVIS AI Terminal Styles */
+        .terminal-widget {
+            margin-top: 30px;
+            background: rgba(5, 5, 10, 0.85);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 24px;
+            backdrop-filter: var(--glass-blur);
+            box-shadow: 0 4px 25px rgba(0, 0, 0, 0.6);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            animation: fadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .terminal-widget::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(90deg, #10b981, transparent);
+        }
+
+        #chat-box {
+            height: 250px;
+            overflow-y: auto;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(0, 242, 254, 0.1);
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            font-family: 'Consolas', 'Courier New', Courier, monospace;
+            font-size: 0.95rem;
+            line-height: 1.5;
+            scroll-behavior: smooth;
+        }
+
+        /* 스크롤바 디자인 */
+        #chat-box::-webkit-scrollbar {
+            width: 6px;
+        }
+        #chat-box::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.1);
+        }
+        #chat-box::-webkit-scrollbar-thumb {
+            background: rgba(0, 242, 254, 0.25);
+            border-radius: 3px;
+        }
+
+        .chat-message {
+            padding: 10px 14px;
+            border-radius: 10px;
+            max-width: 85%;
+            word-break: break-all;
+        }
+
+        .chat-message.user {
+            background: rgba(0, 242, 254, 0.08);
+            border: 1px solid rgba(0, 242, 254, 0.2);
+            color: var(--primary-neon);
+            align-self: flex-end;
+        }
+
+        .chat-message.jarvis {
+            background: rgba(16, 185, 129, 0.08);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            color: #00ff66;
+            align-self: flex-start;
+        }
+
+        .chat-message.system {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--text-muted);
+            align-self: center;
+            font-size: 0.85rem;
+        }
+
+        .terminal-input-row {
+            display: flex;
+            gap: 12px;
+        }
+
+        .terminal-input {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 14px 18px;
+            color: #ffffff;
+            font-family: 'Consolas', monospace;
+            font-size: 0.95rem;
+            outline: none;
+            transition: all 0.3s;
+        }
+
+        .terminal-input:focus {
+            border-color: var(--primary-neon);
+            box-shadow: 0 0 12px rgba(0, 242, 254, 0.25);
+        }
+
+        .btn-send {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: #050508;
+            border: none;
+            border-radius: 10px;
+            padding: 0 28px;
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+            font-size: 0.9rem;
+            letter-spacing: 1.5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-send:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.35);
+            filter: brightness(1.1);
+        }
+
+        .btn-voice {
+            background: linear-gradient(135deg, #dc2626, #991b1b);
+            color: #ffffff;
+            border: none;
+            border-radius: 10px;
+            padding: 0 20px;
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+            font-size: 0.9rem;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            white-space: nowrap;
+        }
+
+        .btn-voice:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(220, 38, 38, 0.4);
+            filter: brightness(1.1);
+        }
+
+        /* 모바일 반응형 및 터치 최적화 미디어 쿼리 */
+        @media (max-width: 768px) {
+            body {
+                background-attachment: scroll;
+            }
+            header {
+                padding: 16px 20px;
+                flex-direction: column;
+                gap: 12px;
+                text-align: center;
+            }
+            main {
+                padding: 16px;
+            }
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+            .terminal-widget {
+                width: 100%;
+                padding: 16px;
+                margin-top: 20px;
+            }
+            .terminal-input-row {
+                flex-direction: column;
+                gap: 10px;
+            }
+            .terminal-input {
+                width: 100%;
+                padding: 12px 14px;
+            }
+            .btn-voice, .btn-send {
+                width: 100%;
+                min-height: 48px; /* 모바일 터치 최적화 (최소 45px 이상) */
+                padding: 12px 0;
+                font-size: 1rem;
+            }
+            #chat-box {
+                font-size: 0.95rem;
+                height: 280px;
+            }
+            .chat-message {
+                max-width: 95%;
+                font-size: 0.95rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="logo-container">
+            <div class="logo-glow"></div>
+            <h1>Jarvis Command Center</h1>
+        </div>
+        {% if is_logged_in %}
+        <div class="status-badge connected" id="connectionStatus">
+            <span class="dot"></span>ONLINE
+        </div>
+        {% else %}
+        <div class="status-badge disconnected" id="connectionStatus">
+            <span class="dot"></span>OFFLINE
+        </div>
+        {% endif %}
+    </header>
+
+    <main>
+        {% if not is_logged_in %}
+        <!-- Connection Request Section -->
+        <div class="connect-container">
+            <div class="connect-icon-wrapper">
+                <svg viewBox="0 0 24 24">
+                    <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 12c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm6-8h-3V5h3v2z"/>
+                </svg>
+            </div>
+            <h2>JARVIS 오프라인 상태</h2>
+            <p>구글 API 및 에이전트 기능을 활성화하기 위해 구글 워크스페이스 계정 연동이 필요합니다. 아래 연동 버튼을 눌러주세요.</p>
+            <a href="/login" class="btn-connect" id="loginBtn">계정 연결 승인</a>
+        </div>
+        {% else %}
+        <!-- Dashboard Main Grid -->
+        <div class="dashboard-grid">
+            <!-- Left Panel: Today's Schedule -->
+            <div class="widget">
+                <div class="widget-title">
+                    오늘의 일정 (Calendar)
+                    <svg viewBox="0 0 24 24">
+                        <path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2z"/>
+                    </svg>
+                </div>
+                
+                <div id="calendarWidget">
+                    <div class="loading-state">
+                        <svg viewBox="0 0 24 24" class="spin-icon">
+                            <path d="M12 4V2C6.48 2 2 6.48 2 12h2c0-4.41 3.59-8 8-8zm0 16c4.41 0 8-3.59 8-8h2c0 5.52-4.48 10-10 10v-2z"/>
+                        </svg>
+                        <p>구글 캘린더 데이터를 불러오는 중...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Middle Panel: Unread Emails -->
+            <div class="widget">
+                <div class="widget-title">
+                    최근 미확인 메일 (Gmail)
+                    <svg viewBox="0 0 24 24">
+                        <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+                    </svg>
+                </div>
+                
+                <div id="gmailWidget">
+                    <div class="loading-state">
+                        <svg viewBox="0 0 24 24" class="spin-icon">
+                            <path d="M12 4V2C6.48 2 2 6.48 2 12h2c0-4.41 3.59-8 8-8zm0 16c4.41 0 8-3.59 8-8h2c0 5.52-4.48 10-10 10v-2z"/>
+                        </svg>
+                        <p>Gmail 데이터를 불러오는 중...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: System Status & Commands -->
+            <div class="widget">
+                <div class="widget-title">
+                    시스템 제어 (SYSTEM STATUS)
+                    <svg viewBox="0 0 24 24">
+                        <path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.85,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.43-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/>
+                    </svg>
+                </div>
+                
+                <div class="system-status">
+                    <div class="status-item">
+                        <span class="status-label">보안 수준 (Security Layer)</span>
+                        <span class="status-val">AES-256 ACTIVE</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">토큰 유효 상태 (Credential Status)</span>
+                        <span class="status-val" style="color: #10b981;">VERIFIED</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">워크스페이스 API 동기화</span>
+                        <span class="status-val">READY</span>
+                    </div>
+                    
+                    <div class="system-controls">
+                        <a href="/login" class="btn-action">계정 갱신 / 변경</a>
+                        <button onclick="refreshCalendar()" class="btn-action" style="background: rgba(0, 242, 254, 0.05); color: var(--primary-neon); border-color: rgba(0, 242, 254, 0.3);">일정 새로고침</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- JARVIS AI Terminal Widget -->
+        <div class="terminal-widget">
+            <div class="widget-title" style="margin-bottom: 8px;">
+                자비스 AI 터미널 (JARVIS AI TERMINAL)
+                <svg viewBox="0 0 24 24" style="fill: #10b981; filter: drop-shadow(0 0 3px #10b981); width: 22px; height: 22px;">
+                    <path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-8 12H4v-2h8v2zm8-4H4V8h16v4z"/>
+                </svg>
+            </div>
+            
+            <div id="chat-box">
+                <div class="chat-message system">자비스 AI 코어 접속 완료. 명령을 입력하세요.</div>
+            </div>
+            
+            <div class="terminal-input-row">
+                <input type="text" id="terminalInput" class="terminal-input" placeholder="Type a command or ask JARVIS..." autocomplete="off">
+                <button onclick="startSpeechRecognition()" class="btn-voice" id="voiceBtn">🎤 음성 입력</button>
+                <button onclick="sendChatMessage()" class="btn-send">SEND</button>
+            </div>
+        </div>
+        {% endif %}
+    </main>
+
+    {% if is_logged_in %}
+    <script>
+        // 날짜 문자열 포맷 변환 함수
+        function formatEventTime(isoString) {
+            if (!isoString) return '';
+            
+            // 날짜만 있는 경우 (종일 일정: YYYY-MM-DD)
+            if (isoString.length <= 10) {
+                return isoString + ' (종일)';
+            }
+            
+            const date = new Date(isoString);
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            return `${hours}:${minutes}`;
+        }
+
+        // 구글 캘린더 데이터를 비동기로 불러오는 함수
+        async function fetchTodayEvents() {
+            const container = document.getElementById('calendarWidget');
+            try {
+                // fetch 함수에 .catch() 블록을 추가하여 네트워크 오류 등 예외 발생 시 에러 출력 및 화면에 오류 메시지 표시
+                const response = await fetch('/calendar/today')
+                    .catch(error => {
+                        console.error('Fetch network error:', error);
+                        container.innerHTML = `
+                            <div class="empty-state" style="color: #ef4444;">
+                                <svg viewBox="0 0 24 24" style="fill: rgba(239, 68, 68, 0.2);">
+                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                                </svg>
+                                <p>데이터를 불러오지 못했습니다. (세부 오류는 콘솔 확인)</p>
+                            </div>
+                        `;
+                        throw error;
+                    });
+
+                if (!response.ok) {
+                    throw new Error(`API 통신 실패 (HTTP status: ${response.status})`);
+                }
+                
+                const data = await response.json();
+                
+                // 디버깅을 위해 브라우저 콘솔에 원본 응답 데이터 출력
+                console.log('Calendar API response data:', data);
+                
+                // 일정이 없는 경우 {"message": "..."} 형태의 응답을 정상적으로 처리
+                if (data.message || !Array.isArray(data) || data.length === 0) {
+                    const noEventMessage = (data && data.message) ? data.message : "오늘 예정된 일정이 없습니다.";
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+                            </svg>
+                            <p>${escapeHtml(noEventMessage)}</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                // 일정이 있는 경우 렌더링
+                let listHtml = '<ul class="events-list">';
+                data.forEach(event => {
+                    const timeRange = event.start.length <= 10 
+                        ? '종일 일정' 
+                        : `${formatEventTime(event.start)} - ${formatEventTime(event.end)}`;
+                        
+                    listHtml += `
+                        <li class="event-card">
+                            <div class="event-title">${escapeHtml(event.title)}</div>
+                            <div class="event-time">
+                                <svg viewBox="0 0 24 24">
+                                    <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/>
+                                </svg>
+                                <span>${timeRange}</span>
+                            </div>
+                        </li>
+                    `;
+                });
+                listHtml += '</ul>';
+                container.innerHTML = listHtml;
+                
+            } catch (error) {
+                console.error('Unhandled calendar widget error:', error);
+                // 중복 에러 표시 방지 및 API 통신 실패 등 기타 에러에 대응
+                if (!container.querySelector('.empty-state') || container.querySelector('.empty-state p').innerText.includes('불러오는 중')) {
+                    container.innerHTML = `
+                        <div class="empty-state" style="color: #ef4444;">
+                            <svg viewBox="0 0 24 24" style="fill: rgba(239, 68, 68, 0.2);">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                            </svg>
+                            <p>데이터를 불러오지 못했습니다. (세부 오류는 콘솔 확인)</p>
+                        </div>
+                    `;
+                }
+            }
+        }
+
+        // HTML 이스케이프 유틸리티 (XSS 방지)
+        function escapeHtml(str) {
+            return str
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        // 구글 Gmail 데이터를 비동기로 불러오는 함수
+        async function fetchUnreadEmails() {
+            const container = document.getElementById('gmailWidget');
+            if (!container) return;
+            
+            try {
+                // fetch 함수에 .catch() 블록을 추가하여 네트워크 오류 등 예외 발생 시 에러 출력 및 화면에 오류 메시지 표시
+                const response = await fetch('/gmail/unread')
+                    .catch(error => {
+                        console.error('Gmail Fetch network error:', error);
+                        container.innerHTML = `
+                            <div class="empty-state" style="color: #ef4444;">
+                                <svg viewBox="0 0 24 24" style="fill: rgba(239, 68, 68, 0.2);">
+                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                                </svg>
+                                <p style="font-weight: 600; margin-bottom: 4px;">메일 데이터를 파싱하는 중 오류가 발생했습니다.</p>
+                                <p style="font-size: 0.85rem; color: rgba(239, 68, 68, 0.85);">세부 오류: 네트워크 오류 (콘솔 확인)</p>
+                            </div>
+                        `;
+                        throw error;
+                    });
+
+                // HTTP 상태 코드가 200이 아닐 때 에러 핸들링
+                if (!response.ok) {
+                    let errMessage = `HTTP status: ${response.status}`;
+                    try {
+                        const errData = await response.json();
+                        if (errData && errData.error) {
+                            errMessage = errData.error;
+                        } else if (errData && errData.detail) {
+                            errMessage = errData.detail;
+                        }
+                    } catch (e) {}
+                    throw new Error(errMessage);
+                }
+                
+                const data = await response.json();
+                
+                // 디버깅을 위해 브라우저 콘솔에 Gmail 원본 응답 데이터 출력
+                console.log('Gmail API response data:', data);
+                
+                // 백엔드에서 {"error": "..."} 응답이 온 경우 에러로 처리
+                if (data && data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // 읽지 않은 메일이 없는 경우 {"message": "..."} 형태의 응답을 정상적으로 처리
+                if (data.message || !Array.isArray(data) || data.length === 0) {
+                    const noEmailMessage = (data && data.message) ? data.message : "읽지 않은 최근 메일이 없습니다.";
+                    const noEmailDetails = (data && data.details) ? data.details : "";
+                    
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/>
+                            </svg>
+                            <p>${escapeHtml(noEmailMessage)}</p>
+                            ${noEmailDetails ? `<p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 8px; max-width: 280px; line-height: 1.4;">${escapeHtml(noEmailDetails)}</p>` : ''}
+                        </div>
+                    `;
+                    return;
+                }
+                
+                // 읽지 않은 메일이 있는 경우 렌더링
+                let listHtml = '<ul class="email-list">';
+                data.forEach(mail => {
+                    listHtml += `
+                        <li class="email-card">
+                            <div class="email-header">
+                                <span class="email-sender">${escapeHtml(mail.from)}</span>
+                            </div>
+                            <div class="email-subject">${escapeHtml(mail.subject)}</div>
+                            <div class="email-snippet">${escapeHtml(mail.snippet)}</div>
+                        </li>
+                    `;
+                });
+                listHtml += '</ul>';
+                container.innerHTML = listHtml;
+                
+            } catch (error) {
+                console.error('Unhandled gmail widget error:', error);
+                // 화면 위젯에 에러 정보와 함께 상세 메시지 표시
+                container.innerHTML = `
+                    <div class="empty-state" style="color: #ef4444;">
+                        <svg viewBox="0 0 24 24" style="fill: rgba(239, 68, 68, 0.2);">
+                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                        </svg>
+                        <p style="font-weight: 600; margin-bottom: 4px;">메일 데이터를 파싱하는 중 오류가 발생했습니다.</p>
+                        <p style="font-size: 0.85rem; color: rgba(239, 68, 68, 0.85);">세부 오류: ${escapeHtml(error.message || error)}</p>
+                    </div>
+                `;
+            }
+        }
+
+        // 수동 새로고침 버튼
+        function refreshCalendar() {
+            const calendarContainer = document.getElementById('calendarWidget');
+            const gmailContainer = document.getElementById('gmailWidget');
+            
+            calendarContainer.innerHTML = `
+                <div class="loading-state">
+                    <svg viewBox="0 0 24 24" class="spin-icon">
+                        <path d="M12 4V2C6.48 2 2 6.48 2 12h2c0-4.41 3.59-8 8-8zm0 16c4.41 0 8-3.59 8-8h2c0 5.52-4.48 10-10 10v-2z"/>
+                    </svg>
+                    <p>구글 캘린더 데이터를 동기화 중...</p>
+                </div>
+            `;
+            if (gmailContainer) {
+                gmailContainer.innerHTML = `
+                    <div class="loading-state">
+                        <svg viewBox="0 0 24 24" class="spin-icon">
+                            <path d="M12 4V2C6.48 2 2 6.48 2 12h2c0-4.41 3.59-8 8-8zm0 16c4.41 0 8-3.59 8-8h2c0 5.52-4.48 10-10 10v-2z"/>
+                        </svg>
+                        <p>Gmail 데이터를 동기화 중...</p>
+                    </div>
+                `;
+            }
+            
+            fetchTodayEvents();
+            fetchUnreadEmails();
+        }
+
+        // Gemini AI 채팅 전송 함수
+        async function sendChatMessage() {
+            const input = document.getElementById('terminalInput');
+            const chatBox = document.getElementById('chat-box');
+            if (!input || !chatBox) return;
+
+            const message = input.value.trim();
+            if (!message) return;
+
+            // 1. 사용자 메시지 렌더링 및 입력 필드 비우기
+            appendChatMessage('user', message);
+            input.value = '';
+
+            // 2. JARVIS Thinking... 대기 메시지 임시 생성
+            const thinkingId = 'thinking_' + Date.now();
+            appendChatMessage('jarvis', 'Thinking...', thinkingId);
+            chatBox.scrollTop = chatBox.scrollHeight;
+
+            try {
+                // 3. 백엔드 /ai/chat 엔드포인트 호출
+                const response = await fetch('/ai/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ message: message })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`서버 통신 실패 (Status: ${response.status})`);
+                }
+
+                const data = await response.json();
+                
+                // 4. 대기 메시지 제거 및 실제 답변 렌더링
+                const thinkingElement = document.getElementById(thinkingId);
+                if (thinkingElement) {
+                    thinkingElement.remove();
+                }
+
+                const aiResponse = data.response || '(답변을 받아오지 못했습니다.)';
+                appendChatMessage('jarvis', aiResponse);
+                speak(aiResponse);
+                
+            } catch (error) {
+                console.error('Terminal chat error:', error);
+                const thinkingElement = document.getElementById(thinkingId);
+                if (thinkingElement) {
+                    thinkingElement.remove();
+                }
+                appendChatMessage('system', `오류 발생: ${error.message || error}`);
+            }
+            
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        // 메시지 말풍선 추가 헬퍼 함수
+        function appendChatMessage(sender, text, id = null) {
+            const chatBox = document.getElementById('chat-box');
+            if (!chatBox) return;
+
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `chat-message ${sender}`;
+            if (id) {
+                messageDiv.id = id;
+            }
+            
+            // 줄바꿈 문자(\n) 지원
+            messageDiv.innerText = text;
+            chatBox.appendChild(messageDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        // Web Speech API STT (음성 인식) 구현
+        let recognition;
+        function startSpeechRecognition() {
+            const voiceBtn = document.getElementById('voiceBtn');
+            const input = document.getElementById('terminalInput');
+            if (!input || !voiceBtn) return;
+
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                alert("이 브라우저는 음성 인식을 지원하지 않습니다. Chrome 등을 이용해 주세요.");
+                return;
+            }
+
+            if (recognition && recognition.state === 'listening') {
+                recognition.stop();
+                return;
+            }
+
+            recognition = new SpeechRecognition();
+            recognition.lang = 'ko-KR';
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
+
+            recognition.onstart = () => {
+                voiceBtn.innerText = '🛑 음성 인식 중...';
+                voiceBtn.style.background = 'linear-gradient(135deg, #ef4444, #b91c1c)';
+                voiceBtn.style.boxShadow = '0 0 15px rgba(239, 68, 68, 0.5)';
+            };
+
+            recognition.onend = () => {
+                voiceBtn.innerText = '🎤 음성 입력';
+                voiceBtn.style.background = 'linear-gradient(135deg, #dc2626, #991b1b)';
+                voiceBtn.style.boxShadow = 'none';
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error:', event.error);
+                alert('음성 인식 오류: ' + event.error);
+            };
+
+            recognition.onresult = (event) => {
+                const resultText = event.results[0][0].transcript;
+                input.value = resultText;
+                sendChatMessage();
+            };
+
+            recognition.start();
+        }
+
+        // Web Speech API TTS (음성 합성) 구현
+        function speak(text) {
+            if (!window.speechSynthesis) {
+                console.warn("이 브라우저는 음성 합성을 지원하지 않습니다.");
+                return;
+            }
+
+            // 즉각 반응: 새로운 답변이 올 때 이전 음성 출력을 즉시 취소 및 정지
+            window.speechSynthesis.cancel();
+
+            // 한글 및 기호 가독성을 위해 마크다운 특수문자나 괄호 등 일부 노이즈 정제
+            const cleanText = text.replace(/[*_`#~\[\]\(\)]/g, ' ');
+
+            const utterance = new SpeechSynthesisUtterance(cleanText);
+            utterance.lang = 'ko-KR';
+
+            // 목소리 선택 (Voice Selection): 'Google'이나 'Microsoft'가 포함된 한국어 보이스 우선 탐색
+            const voices = window.speechSynthesis.getVoices();
+            const koVoices = voices.filter(voice => voice.lang === 'ko-KR' || voice.lang.startsWith('ko'));
+            
+            let selectedVoice = koVoices.find(voice => voice.name.includes('Google') || voice.name.includes('Microsoft'));
+            
+            if (!selectedVoice && koVoices.length > 0) {
+                selectedVoice = koVoices[0];
+            }
+            
+            if (selectedVoice) {
+                utterance.voice = selectedVoice;
+            }
+
+            // 톤 및 속도 설정 (Tone & Speed): 침착하고 묵직한 자비스 톤
+            utterance.rate = 0.95;  // 약간 천천히
+            utterance.pitch = 0.9;  // 톤을 살짝 낮춤
+
+            window.speechSynthesis.speak(utterance);
+        }
+
+        // 페이지 로드 즉시 실행 및 엔터 키 바인딩
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchTodayEvents();
+            fetchUnreadEmails();
+
+            const input = document.getElementById('terminalInput');
+            if (input) {
+                input.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        sendChatMessage();
+                    }
+                });
+            }
+        });
+    </script>
+    {% endif %}
+</body>
+</html>
