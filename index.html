@@ -1532,10 +1532,32 @@
             }
         }
 
+        // 자비스 능동 알림 API 호출 및 출력/음성 안내 함수
+        async function checkProactiveNotifications() {
+            try {
+                const response = await fetch('/api/notifications');
+                if (!response.ok) return;
+                const data = await response.json();
+                
+                if (Array.isArray(data) && data.length > 0) {
+                    for (const notif of data) {
+                        appendChatMessage('system', `🔔 [자비스 알림 - ${notif.title}] ${notif.message}`);
+                        speak(`알림입니다. ${notif.message}`);
+                    }
+                }
+            } catch (e) {
+                console.error("Error checking notifications:", e);
+            }
+        }
+
         // 페이지 로드 즉시 실행 및 엔터 키 바인딩
         document.addEventListener('DOMContentLoaded', () => {
             fetchTodayEvents();
             fetchUnreadEmails();
+            
+            // 30초 간격으로 백엔드의 실시간 능동 알림을 폴링하여 모니터링
+            checkProactiveNotifications();
+            setInterval(checkProactiveNotifications, 30000);
 
             const input = document.getElementById('terminalInput');
             if (input) {

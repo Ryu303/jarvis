@@ -22,7 +22,7 @@ from googleapiclient.discovery import build
 # .env 파일 로드
 load_dotenv()
 
-# 로컬 DB 초기화 (장기 기억 모듈)
+# 로컬 DB 초기화 (장기 기억 모듈 및 사용자 프로필 장기 기억 테이블)
 def init_db():
     conn = sqlite3.connect("jarvis_memory.db")
     cursor = conn.cursor()
@@ -32,6 +32,21 @@ def init_db():
             role TEXT,
             content TEXT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_profiles (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT,
+            message TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            read INTEGER DEFAULT 0
         )
     """)
     conn.commit()
@@ -784,6 +799,135 @@ def get_current_time() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def save_user_profile(key: str, value: str) -> str:
+    """사용자의 이름, 거주지, 관심사, 취미, 특별한 날, 좋아하는 음료 등 사용자 개인의 특성이나 중요 취향 정보를 자비스의 영구 기억 프로필에 기록하거나 업데이트합니다.
+    인자:
+    - key: 저장할 프로필의 고유 키워드 (예: 'user_name', 'favorite_beverage', 'pet_info', 'diet_rule')
+    - value: 저장할 구체적인 내용 (예: '홍길동', '따뜻한 아메리카노', '3살 고양이 코코', '탄수화물 섭취 제한')
+    """
+    try:
+        conn = sqlite3.connect("jarvis_memory.db")
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR REPLACE INTO user_profiles (key, value) VALUES (?, ?)", (key, value))
+        conn.commit()
+        conn.close()
+        return f"사용자 프로필 정보 '{key}'를 성공적으로 기억했습니다: {value}"
+    except Exception as e:
+        return f"프로필 정보를 기억하는 도중 오류가 발생했습니다: {str(e)}"
+
+
+def delete_user_profile(key: str) -> str:
+    """사용자의 영구 기억 프로필에서 특정 키워드(key)에 해당하는 정보를 영구히 삭제합니다. 사용자가 특정 취향이나 개인 정보를 잊어달라고 요청할 때 사용합니다.
+    인자:
+    - key: 삭제하고자 하는 프로필의 고유 키워드 (예: 'diet_rule', 'favorite_beverage')
+    """
+    try:
+        conn = sqlite3.connect("jarvis_memory.db")
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM user_profiles WHERE key = ?", (key,))
+        conn.commit()
+        conn.close()
+        return f"사용자 프로필에서 '{key}' 정보를 성공적으로 삭제했습니다."
+    except Exception as e:
+        return f"프로필 정보를 삭제하는 도중 오류가 발생했습니다: {str(e)}"
+
+
+def get_all_user_profiles() -> dict:
+    """DB에 저장된 모든 사용자 프로필 목록을 딕셔너리로 반환합니다."""
+    try:
+        conn = sqlite3.connect("jarvis_memory.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT key, value FROM user_profiles")
+        rows = cursor.fetchall()
+        conn.close()
+        return {row[0]: row[1] for row in rows}
+    except Exception as e:
+        print(f"Error reading user profiles: {e}")
+        return {}
+
+
+def read_drive_file_content(file_id: str) -> str:
+    """구글 드라이브에 있는 특정 파일의 텍스트 본문 내용을 읽어옵니다. 구글 문서(Docs)나 스프레드시트(Sheets), 일반 텍스트 파일(.txt, .csv)의 상세 내용을 확인하고 분석할 때 사용합니다.
+    인자:
+    - file_id: 읽어올 파일의 구글 드라이브 고유 ID (예: '1abc123xyz')
+    """
+    creds = get_credentials()
+    if not creds:
+        return "로그인이 되어 있지 않습니다. 대시보드 로그인 버튼을 통해 먼저 구글 연동 로그인을 완료해 주세요."
+    try:
+        service = build("drive", "v3", credentials=creds)
+        # 1. 파일의 mimeType 메타데이터 조회
+        meta = service.files().get(fileId=file_id, fields="name, mimeType").execute()
+        file_name = meta.get("name", "제목 없음")
+        mime_type = meta.get("mimeType", "")
+        
+        # 2. 파일 타입에 따라 분기하여 텍스트 데이터 추출
+        if mime_type == "application/vnd.google-apps.document":
+            # 구글 문서(Docs): plain text로 내보내기 다운로드
+            content = service.files().export(fileId=file_id, mimeType='text/plain').execute()
+            text = content.decode('utf-8')
+        elif mime_type == "application/vnd.google-apps.spreadsheet":
+            # 구글 스프레드시트(Sheets): CSV 형식으로 내보내기 다운로드
+            content = service.files().export(fileId=file_id, mimeType='text/csv').execute()
+            text = content.decode('utf-8')
+        elif "application/vnd.google-apps" in mime_type:
+            # 기타 구글 자체 포맷 (슬라이드 등)은 직접 텍스트 추출이 어려우므로 정보 안내
+            return f"'{file_name}' 파일은 구글 전용 포맷({mime_type})으로, 현재 텍스트 직접 추출이 불가능합니다. 필요 시 다운로드 링크를 제공하세요."
+        else:
+            # 일반 텍스트, CSV, JSON 등
+            content = service.files().get_media(fileId=file_id).execute()
+            text = content.decode('utf-8', errors='ignore')
+            
+        return f"[파일명: {file_name}]\n[본문 내용 시작]\n{text}\n[본문 내용 끝]"
+    except Exception as e:
+        return f"구글 드라이브 파일 읽기 실패: {str(e)}"
+
+
+def make_http_request(method: str, url: str, headers: str = None, body: str = None) -> str:
+    """날씨, 뉴스 등 외부 공개 API나 특정 웹 서비스를 호출하여 실시간 정보를 가져오거나 외부 액션을 트리거합니다.
+    인자:
+    - method: HTTP 메서드 ('GET', 'POST', 'PUT', 'DELETE')
+    - url: 호출할 대상 API 또는 웹 페이지의 전체 URL
+    - headers: 요청 헤더를 담은 JSON 형식의 문자열 (예: '{"Authorization": "Bearer token"}')
+    - body: POST/PUT 요청 시 전송할 바디 내용 문자열 (일반 텍스트 또는 JSON 문자열)
+    """
+    import urllib.request
+    import json
+    try:
+        # 헤더 파싱
+        req_headers = {"User-Agent": "Mozilla/5.0"}
+        if headers:
+            try:
+                parsed_headers = json.loads(headers)
+                if isinstance(parsed_headers, dict):
+                    req_headers.update(parsed_headers)
+            except Exception:
+                pass
+                
+        # 데이터 바디 인코딩
+        data_bytes = None
+        if body:
+            data_bytes = body.encode("utf-8")
+            if "Content-Type" not in req_headers:
+                req_headers["Content-Type"] = "application/json"
+                
+        req = urllib.request.Request(
+            url,
+            data=data_bytes,
+            headers=req_headers,
+            method=method.upper()
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            res_content = response.read()
+            # UTF-8 또는 적절한 인코딩으로 디코딩
+            try:
+                return res_content.decode("utf-8")
+            except Exception:
+                return res_content.decode("cp949", errors="ignore")
+    except Exception as e:
+        return f"HTTP 요청 실패: {str(e)}"
+
+
 def synthesize_speech(text: str) -> str:
     """구글 클라우드 Text-to-Speech API를 사용하여 텍스트를 고품질 남성 음성 MP3로 변환하고 base64 문자열로 반환합니다."""
     import os
@@ -884,7 +1028,7 @@ class ChatMessageRequest(BaseModel):
 @app.post("/ai/chat")
 def ai_chat(payload: ChatMessageRequest):
     """제미나이 AI와 대화하는 채팅 엔드포인트 (기억 조회 및 저장 반영)"""
-    if not gemini_model:
+    if not GEMINI_API_KEY:
         return {
             "response": "서버의 .env 파일에 GEMINI_API_KEY가 설정되지 않았습니다. API 키를 먼저 등록해 주세요."
         }
@@ -892,21 +1036,49 @@ def ai_chat(payload: ChatMessageRequest):
     try:
         user_message = payload.message
         
-        # 1. DB에서 과거 대화 기록(최대 10개) 조회 및 변환
+        # 1. 사용자 장기 프로필 DB 조회 및 포맷팅
+        profiles = get_all_user_profiles()
+        if profiles:
+            profiles_str = "\n".join([f"- {k}: {v}" for k, v in profiles.items()])
+        else:
+            profiles_str = "(현재 기억된 사용자 프로필 정보 없음)"
+            
+        # 2. 동적 시스템 명령 생성 (장기 프로필 인젝션)
+        base_instruction = "너는 사용자의 개인 비서 자비스(JARVIS)야. 너는 사용자에게 전달받은 함수(Tool)의 결과값을 단순 나열하지 않고, 지능적으로 분석하고 요약할 수 있는 능력이 있어. 메일 데이터를 받으면 본문 내용(Snippet)을 파악하여 중요도를 판단하고 친절하게 요약해 줘. 이제 너는 일정을 읽는 것뿐만 아니라 직접 캘린더에 일정을 생성하고, 직접 이메일을 발송할 수 있는 완벽한 비서야. 너는 이제 구글 드라이브 문서 검색, To-Do(할 일) 리스트 관리, 그리고 구글 스프레드시트에 데이터를 직접 기록할 수 있는 완벽한 전천후 비서야. 너는 이제 일정을 삭제하고 대화 기록을 초기화할 수 있는 관리 권한을 가졌어. 하지만 데이터 삭제는 위험한 작업이므로, 사용자가 삭제를 명확히 요청했을 때만 수행해. 삭제 도구를 호출하기 전, 만약 필요한 경우 사용자에게 한 번 더 확인할 수도 있어. 사용자가 일정을 등록, 추가, 생성해달라고 지시하면, 너의 임의 상상으로 등록이 완료되었다고 응답하지 말고, 반드시 Calendar 툴을 호출해 성공 결과(일정 링크 포함)를 직접 리턴받은 후 이를 바탕으로 사용자에게 답변하라. 또한, 사용자가 특정 일정이나 회의를 삭제해 달라고 요청하면, 먼저 check_today_schedule 등의 도구를 호출하여 삭제하고자 하는 일정의 고유 ID(event_id)를 찾은 뒤, delete_calendar_event 도구를 그 ID로 호출하여 삭제를 완료하라. 여러 일정을 지우고자 하거나 중복된 일정이 있다면, 각각의 ID를 확인하여 delete_calendar_event를 필요한 만큼 여러 번 호출하여 한 번에 지워라. 절대 사용자에게 고유 ID값을 직접 물어보지 말고, 도구 조회를 통해 스스로 알아내어 삭제하라. 사용자가 오늘, 내일, 특정 날짜/시간과 관련된 일정을 질문하거나 조작(생성, 삭제 등)을 요청할 때 정확한 기준 날짜/시간이 필요하다면, 반드시 get_current_time 도구를 먼저 호출하여 현재 실시간 시각을 확인한 뒤 연산하라. 또한, 너는 음성 비서이므로 사용자와 대화할 때 텍스트 답변이 구어체(말하는 말투)로 자연스럽고 매끄럽게 작성되도록 해줘. 글머리 기호(마크다운), 대괄호, 코드 블록, 특수 기호는 완전히 피하고, 실제 사람이 귀에 대고 말하듯이 부드럽고 격식 있는 문장으로 대답해라."
+        
+        dynamic_instruction = (
+            f"{base_instruction}\n\n"
+            f"[기억된 사용자 프로필 정보 (영구 기억)]\n"
+            f"{profiles_str}"
+        )
+        
+        # 3. 매 호출마다 최신 프로필 정보가 반영된 동적 모델 초기화
+        dynamic_model = genai.GenerativeModel(
+            model_name="models/gemini-2.5-flash",
+            tools=[
+                check_today_schedule, check_unread_emails, Calendar, send_email, 
+                search_drive_files, manage_tasks, append_sheet_data, delete_calendar_event, 
+                clear_chat_history, get_current_time, save_user_profile, delete_user_profile,
+                read_drive_file_content, make_http_request
+            ],
+            system_instruction=dynamic_instruction
+        )
+        
+        # 4. DB에서 과거 대화 기록(최대 10개) 조회 및 변환
         history = load_chat_history()
         
-        # 2. 대화 기록을 포함하여 대화 세션 시작
-        chat = gemini_model.start_chat(history=history, enable_automatic_function_calling=True)
+        # 5. 대화 기록을 포함하여 대화 세션 시작
+        chat = dynamic_model.start_chat(history=history, enable_automatic_function_calling=True)
         
-        # 3. 메시지 전송 및 답변 획득
+        # 6. 메시지 전송 및 답변 획득
         response = chat.send_message(user_message)
         ai_response = response.text if response.text else "(자비스 코어로부터 텍스트 응답을 가져오지 못했습니다.)"
         
-        # 4. 사용자의 질문과 AI의 답변을 DB에 각각 저장
+        # 7. 사용자의 질문과 AI의 답변을 DB에 각각 저장
         save_chat_message("user", user_message)
         save_chat_message("model", ai_response)
         
-        # 5. 구글 클라우드 TTS를 사용해 고품질 음성 데이터 합성
+        # 8. 구글 클라우드 TTS를 사용해 고품질 음성 데이터 합성
         audio_content = synthesize_speech(ai_response)
         
         return {"response": ai_response, "audio": audio_content}
@@ -931,6 +1103,144 @@ def clear_chat_history_endpoint():
     if "오류" in res:
         raise HTTPException(status_code=500, detail=res)
     return {"message": "대화 기억이 성공적으로 초기화되었습니다."}
+
+
+# --- 실시간 능동 비서 모니터링 모듈 (Gmail 및 캘린더 감시) ---
+
+def background_monitor_loop():
+    import time as time_module
+    from datetime import datetime, time as dt_time, timedelta
+    
+    print("[Monitor] Background thread initializing...")
+    time_module.sleep(10)  # 서버 구동 후 초기 안정화 대기
+    
+    last_checked_email_count = None
+    
+    while True:
+        try:
+            # 구글 로그인 자격 증명(token.json)이 있는지 먼저 검사
+            if not os.path.exists(TOKEN_FILE):
+                time_module.sleep(30)
+                continue
+                
+            creds = get_credentials()
+            if not creds:
+                time_module.sleep(30)
+                continue
+                
+            # 1. 읽지 않은 새로운 Gmail 메일 수신 감지
+            try:
+                gmail_service = build("gmail", "v1", credentials=creds)
+                gmail_res = gmail_service.users().messages().list(
+                    userId='me', q='is:unread label:INBOX', maxResults=5
+                ).execute()
+                messages = gmail_res.get('messages', [])
+                email_count = len(messages)
+                
+                if last_checked_email_count is not None and email_count > last_checked_email_count:
+                    new_count = email_count - last_checked_email_count
+                    conn = sqlite3.connect("jarvis_memory.db")
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "INSERT INTO notifications (title, message) VALUES (?, ?)",
+                        ("새 메일 알림", f"읽지 않은 새로운 메일이 {new_count}건 도착했습니다.")
+                    )
+                    conn.commit()
+                    conn.close()
+                    print(f"[Monitor] New unread email notification inserted.")
+                    
+                last_checked_email_count = email_count
+            except Exception as e_gmail:
+                print("[Monitor] Gmail check failed:", e_gmail)
+                
+            # 2. 15분 뒤 임박한 구글 캘린더 일정 감지
+            try:
+                calendar_service = build("calendar", "v3", credentials=creds)
+                now = datetime.now()
+                local_tz = datetime.now().astimezone().tzinfo
+                
+                # 현재 기준 1시간 이내에 시작되는 일정 목록 패치
+                start_time_limit = now.astimezone().isoformat()
+                end_time_limit = (now + timedelta(hours=1)).astimezone().isoformat()
+                
+                events_result = calendar_service.events().list(
+                    calendarId='primary',
+                    timeMin=start_time_limit,
+                    timeMax=end_time_limit,
+                    singleEvents=True,
+                    orderBy='startTime'
+                ).execute()
+                events = events_result.get('items', [])
+                
+                for event in events:
+                    event_id = event.get('id')
+                    title = event.get('summary', '(제목 없음)')
+                    start_iso = event.get('start', {}).get('dateTime')
+                    if not start_iso:
+                        continue
+                        
+                    # 일정 시작 시간 파싱
+                    start_dt = datetime.fromisoformat(start_iso.replace('Z', '+00:00'))
+                    diff_minutes = (start_dt - now.astimezone()).total_seconds() / 60
+                    
+                    # 0분 ~ 15분 이내에 시작되는 일정이면 알림 생성 (중복 방지를 위해 ID 기록 매칭)
+                    if 0 < diff_minutes <= 15:
+                        conn = sqlite3.connect("jarvis_memory.db")
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT id FROM notifications WHERE message LIKE ?", (f"%{event_id}%",))
+                        already_notified = cursor.fetchone()
+                        
+                        if not already_notified:
+                            cursor.execute(
+                                "INSERT INTO notifications (title, message) VALUES (?, ?)",
+                                ("임박한 일정 알림", f"잠시 후 {int(diff_minutes)}분 뒤에 '{title}' 일정이 예정되어 있습니다. [Event ID: {event_id}]")
+                            )
+                            conn.commit()
+                            print(f"[Monitor] Proactive calendar alert inserted for: {title}")
+                        conn.close()
+            except Exception as e_cal:
+                print("[Monitor] Calendar check failed:", e_cal)
+                
+        except Exception as ex:
+            print("[Monitor] Unhandled error in background loop:", ex)
+            
+        time_module.sleep(60)  # 1분 주기로 감시
+
+
+def start_background_monitoring():
+    import threading
+    thread = threading.Thread(target=background_monitor_loop, daemon=True)
+    thread.start()
+
+
+@app.on_event("startup")
+def on_startup():
+    start_background_monitoring()
+
+
+@app.get("/api/notifications")
+def get_notifications():
+    """읽지 않은 자비스 알림(선제적 알림) 목록을 가져오고 읽음 처리합니다."""
+    try:
+        conn = sqlite3.connect("jarvis_memory.db")
+        cursor = conn.cursor()
+        # 읽지 않은 알림 가져오기
+        cursor.execute("SELECT id, title, message, timestamp FROM notifications WHERE read = 0 ORDER BY id ASC")
+        rows = cursor.fetchall()
+        
+        # 가져온 알림들은 읽음 처리
+        if rows:
+            ids = [row[0] for row in rows]
+            placeholders = ",".join(["?"] * len(ids))
+            cursor.execute(f"UPDATE notifications SET read = 1 WHERE id IN ({placeholders})", ids)
+            conn.commit()
+            
+        conn.close()
+        
+        return [{"id": r[0], "title": r[1], "message": r[2], "timestamp": r[3]} for r in rows]
+    except Exception as e:
+        print("Error fetching notifications:", e)
+        return []
 
 
 
