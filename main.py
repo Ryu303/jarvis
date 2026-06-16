@@ -55,9 +55,14 @@ def init_db():
         CREATE TABLE IF NOT EXISTS voice_profiles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             features TEXT,
+            label TEXT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    try:
+        cursor.execute("ALTER TABLE voice_profiles ADD COLUMN label TEXT")
+    except Exception:
+        pass
     conn.commit()
     conn.close()
 
@@ -1301,7 +1306,7 @@ def ai_chat(payload: ChatMessageRequest):
 
 
 @app.post("/api/voice/register")
-async def register_voice(file: UploadFile = File(...)):
+async def register_voice(file: UploadFile = File(...), label: str = "normal"):
     """사용자 음성을 분석하여 특징 벡터를 추출한 뒤 DB에 등록합니다."""
     try:
         audio_bytes = await file.read()
@@ -1311,12 +1316,17 @@ async def register_voice(file: UploadFile = File(...)):
         
         conn = sqlite3.connect("jarvis_memory.db")
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM voice_profiles")
-        cursor.execute("INSERT INTO voice_profiles (features) VALUES (?)", (json.dumps(features.tolist()),))
+        
+        # 첫 번째 일반 톤 등록 시 기존 목소리 프로필 데이터를 모두 초기화
+        if label == "normal":
+            cursor.execute("DELETE FROM voice_profiles")
+            
+        cursor.execute("INSERT INTO voice_profiles (features, label) VALUES (?, ?)", 
+                       (json.dumps(features.tolist()), label))
         conn.commit()
         conn.close()
         
-        return {"status": "success", "message": "목소리 성문 등록이 성공적으로 완료되었습니다."}
+        return {"status": "success", "message": f"'{label}' 목소리 성문 등록이 성공적으로 완료되었습니다."}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"목소리 등록 실패: {str(e)}")
 
@@ -1344,14 +1354,14 @@ async def ai_chat_voice(
     """음성 일치 검증을 거친 후 제미나이 AI와 대화하는 멀티파트 엔드포인트"""
     if voice_lock:
         try:
-            # 1. DB에서 기등록된 사용자 성문 데이터 조회
+            # 1. DB에서 기등록된 모든 사용자 성문 데이터 조회
             conn = sqlite3.connect("jarvis_memory.db")
             cursor = conn.cursor()
-            cursor.execute("SELECT features FROM voice_profiles ORDER BY id DESC LIMIT 1")
-            row = cursor.fetchone()
+            cursor.execute("SELECT features, label FROM voice_profiles")
+            rows = cursor.fetchall()
             conn.close()
             
-            if not row:
+            if not rows:
                 return {
                     "response": "⚠️ VOICE LOCK이 활성화되어 있으나, 등록된 목소리 성문이 없습니다. 시스템 Status 패널에서 목소리를 먼저 등록해 주세요."
                 }
@@ -1369,15 +1379,21 @@ async def ai_chat_voice(
                     "response": "⚠️ 오디오 데이터 파싱에 실패했습니다. (16-bit PCM WAV 형식이 맞는지 확인해 주세요)"
                 }
                 
-            # 3. 코사인 유사도 계산
-            stored_features = np.array(json.loads(row[0]))
-            similarity = calculate_voice_similarity(stored_features, test_features)
-            print(f"[Voice Lock] Cosine Similarity: {similarity*100:.2f}%")
+            # 3. 모든 등록된 성문과의 코사인 유사도 계산하여 최댓값 산출
+            similarities = []
+            for row in rows:
+                stored_features = np.array(json.loads(row[0]))
+                sim = calculate_voice_similarity(stored_features, test_features)
+                similarities.append(sim)
+                print(f"[Voice Lock] Similarity with '{row[1]}' template: {sim*100:.2f}%")
+            
+            max_similarity = max(similarities) if similarities else 0.0
+            print(f"[Voice Lock] Max Cosine Similarity: {max_similarity*100:.2f}%")
             
             # 유사도 기준선 설정 (85% 미만인 경우 거부)
-            if similarity < 0.85:
+            if max_similarity < 0.85:
                 return {
-                    "response": f"⚠️ [VOICE LOCK 거부] 등록되지 않은 목소리입니다. (유사도: {similarity*100:.1f}%)"
+                    "response": f"⚠️ [VOICE LOCK 거부] 등록되지 않은 목소리입니다. (유사도: {max_similarity*100:.1f}%)"
                 }
                 
         except Exception as e:
