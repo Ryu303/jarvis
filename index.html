@@ -1105,6 +1105,7 @@
         }
 
         let isProcessingChat = false; // 채팅 처리 중인지 여부를 저장하는 플래그
+        let hasSpeechResult = false; // 음성 인식 결과를 받았는지 여부를 기록하는 플래그
         let wakeWordRecognition;
         let isWakeWordListening = false;
         let wakeWordTimeout = null;
@@ -1284,7 +1285,12 @@
             isProcessingChat = false;
             const toggle = document.getElementById('wakeWordToggle');
             if (toggle && toggle.checked) {
-                startWakeWordListening();
+                // 연속 대화 모드: 자비스 대답 후 호출어 필요 없이 마이크를 즉시 활성화하여 귀를 기울임
+                setTimeout(() => {
+                    if (document.getElementById('wakeWordToggle')?.checked) {
+                        startSpeechRecognition();
+                    }
+                }, 400); // 이전 오디오 재생 종료 후 마이크 감지 활성화까지 안전 지연시간
             } else {
                 updateTerminalGlow(false);
             }
@@ -1400,6 +1406,7 @@
 
             recognition.onstart = () => {
                 isSpeechRecognizing = true;
+                hasSpeechResult = false;
                 stopWakeWordListening();
                 updateTerminalGlow(true, 'listening');
                 voiceBtn.innerText = '🛑 음성 인식 중...';
@@ -1413,9 +1420,14 @@
                 voiceBtn.style.background = 'linear-gradient(135deg, #dc2626, #991b1b)';
                 voiceBtn.style.boxShadow = 'none';
                 
-                // 대화 처리 중이 아니고 토글이 켜져있다면 다시 상시 대기
-                if (!isProcessingChat && document.getElementById('wakeWordToggle')?.checked) {
-                    startWakeWordListening();
+                // 사용자가 아무 말도 안 해서 무응답으로 꺼진 경우(hasSpeechResult === false)에만 상시 호출 대기 모드로 하향 전환
+                if (!isProcessingChat && !hasSpeechResult) {
+                    const toggle = document.getElementById('wakeWordToggle');
+                    if (toggle && toggle.checked) {
+                        startWakeWordListening();
+                    } else {
+                        updateTerminalGlow(false);
+                    }
                 } else if (!isProcessingChat) {
                     updateTerminalGlow(false);
                 }
@@ -1423,10 +1435,14 @@
 
             recognition.onerror = (event) => {
                 console.error('Speech recognition error:', event.error);
-                alert('음성 인식 오류: ' + event.error);
+                // 사용자의 무응답(no-speech)이나 중단(aborted)에 대해서는 알림창을 띄우지 않고 가볍게 넘어갑니다.
+                if (event.error !== 'no-speech' && event.error !== 'aborted') {
+                    alert('음성 인식 오류: ' + event.error);
+                }
             };
 
             recognition.onresult = (event) => {
+                hasSpeechResult = true;
                 const resultText = event.results[0][0].transcript;
                 input.value = resultText;
                 sendChatMessage();
@@ -1487,7 +1503,7 @@
                 utterance.voice = selectedVoice;
             }
 
-            utterance.rate = 1.7;   
+            utterance.rate = 1.5;   
             utterance.pitch = 0.8;  
 
             window.speechSynthesis.speak(utterance);
