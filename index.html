@@ -1183,11 +1183,16 @@
             const voices = window.speechSynthesis.getVoices();
             const koVoices = voices.filter(voice => voice.lang === 'ko-KR' || voice.lang.startsWith('ko'));
             
-            // 남성 목소리 키워드 매칭 (예: Microsoft InJoon, male, 남성 등)
+            console.log('Available Korean voices:', koVoices.map(v => v.name));
+
+            // 남성 목소리 키워드 매칭 (예: Microsoft InJoon, Minsu, 민수, male, 남성 등)
             let selectedVoice = koVoices.find(voice => 
                 voice.name.includes('InJoon') || 
                 voice.name.includes('Injoon') || 
                 voice.name.includes('In-Joon') || 
+                voice.name.includes('Minsu') || 
+                voice.name.includes('minsu') || 
+                voice.name.includes('민수') || 
                 voice.name.toLowerCase().includes('male') ||
                 voice.name.includes('남성')
             );
@@ -1201,11 +1206,12 @@
             }
             
             if (selectedVoice) {
+                console.log('Selected voice:', selectedVoice.name);
                 utterance.voice = selectedVoice;
             }
 
             // 톤 및 속도 설정 (Tone & Speed): 조금 더 빠르게 & 묵직하고 낮은 남성 톤
-            utterance.rate = 1.3;   // 빠르기 설정
+            utterance.rate = 1.7;   // 빠르기 설정
             utterance.pitch = 0.8;  // 목소리 톤 설정
 
             window.speechSynthesis.speak(utterance);

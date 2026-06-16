@@ -865,6 +865,14 @@ def ai_chat(payload: ChatMessageRequest):
     except Exception as e:
         print("Gemini API Error:")
         traceback.print_exc()
+        
+        # API 소진 및 호출 한도 초과(429, ResourceExhausted) 예외 감지
+        error_msg = str(e)
+        if "429" in error_msg or "ResourceExhausted" in error_msg or "quota" in error_msg.lower() or "exhausted" in error_msg.lower():
+            return {
+                "response": "⚠️ [API 할당량 초과 경고] 현재 제미나이(Gemini) API 호출 한도가 모두 소진되었습니다. 무료 요금제 제공 한도(예: 분당 최대 15회 요청)를 초과했거나 일일 할당량이 부족할 수 있으니, 잠시 후에 다시 시도해 주시기 바랍니다."
+            }
+            
         return {"response": f"자비스 AI 코어 응답 생성 중 오류 발생: {str(e)}"}
 
 
