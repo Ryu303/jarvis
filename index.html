@@ -1067,6 +1067,134 @@
                 </div>
             </div>
             
+            <!-- 감정 HUD (SVG 웨이브 및 스타일) -->
+            <div id="emotion-hud" class="hud-calm" style="height: 60px; margin: 8px 0; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; background: rgba(0, 0, 0, 0.45); border: 1px solid rgba(0, 242, 254, 0.25); border-radius: 12px; transition: all 0.5s ease; box-shadow: inset 0 0 10px rgba(0, 242, 254, 0.1);">
+                <style>
+                    #emotion-waves-svg .wave-path, #emotion-waves-svg .wave-path-sub {
+                        transition: stroke 0.5s ease;
+                        animation: waveMoveCalm 3s infinite linear;
+                    }
+                    
+                    /* Calm: 청록색 부드러운 물결 */
+                    .hud-calm {
+                        border-color: rgba(0, 242, 254, 0.35) !important;
+                        box-shadow: inset 0 0 10px rgba(0, 242, 254, 0.15) !important;
+                    }
+                    .hud-calm #emotion-state-text { color: #00f2fe !important; }
+                    .hud-calm .wave-path { 
+                        stroke: #00f2fe !important; 
+                        animation: waveMoveCalm 2.5s infinite linear !important;
+                    }
+                    .hud-calm .wave-path-sub { 
+                        stroke: #00f2fe !important; 
+                        animation: waveMoveCalmSub 3.5s infinite linear !important;
+                    }
+                    
+                    /* Excited: 황색 빠른 팽창 물결 */
+                    .hud-excited {
+                        border-color: rgba(245, 158, 11, 0.45) !important;
+                        box-shadow: inset 0 0 12px rgba(245, 158, 11, 0.2) !important;
+                    }
+                    .hud-excited #emotion-state-text { color: #f59e0b !important; }
+                    .hud-excited .wave-path { 
+                        stroke: #f59e0b !important; 
+                        animation: waveMoveExcited 1.2s infinite linear !important;
+                    }
+                    .hud-excited .wave-path-sub { 
+                        stroke: #f59e0b !important; 
+                        animation: waveMoveExcitedSub 1.8s infinite linear !important;
+                    }
+                    
+                    /* Fatigued: 보라색 느리고 처지는 물결 */
+                    .hud-fatigued {
+                        border-color: rgba(139, 92, 246, 0.35) !important;
+                        box-shadow: inset 0 0 10px rgba(139, 92, 246, 0.15) !important;
+                    }
+                    .hud-fatigued #emotion-state-text { color: #8b5cf6 !important; }
+                    .hud-fatigued .wave-path { 
+                        stroke: #8b5cf6 !important; 
+                        animation: waveMoveFatigued 5s infinite linear !important;
+                    }
+                    .hud-fatigued .wave-path-sub { 
+                        stroke: #8b5cf6 !important; 
+                        animation: waveMoveFatiguedSub 7s infinite linear !important;
+                    }
+                    
+                    /* Stressed: 적색 날카롭고 미세 진동 물결 */
+                    .hud-stressed {
+                        border-color: rgba(239, 68, 68, 0.5) !important;
+                        box-shadow: inset 0 0 15px rgba(239, 68, 68, 0.25) !important;
+                    }
+                    .hud-stressed #emotion-state-text { color: #ef4444 !important; }
+                    .hud-stressed .wave-path { 
+                        stroke: #ef4444 !important; 
+                        animation: waveMoveStressed 0.5s infinite linear !important;
+                    }
+                    .hud-stressed .wave-path-sub { 
+                        stroke: #ef4444 !important; 
+                        animation: waveMoveStressedSub 0.7s infinite linear !important;
+                    }
+
+                    /* SVG Paths with different wave heights and frequencies */
+                    @keyframes waveMoveCalm {
+                        0% { d: path("M 0,20 Q 25,12 50,20 T 100,20 T 150,20 T 200,20"); }
+                        50% { d: path("M 0,20 Q 25,28 50,20 T 100,20 T 150,20 T 200,20"); }
+                        100% { d: path("M 0,20 Q 25,12 50,20 T 100,20 T 150,20 T 200,20"); }
+                    }
+                    @keyframes waveMoveCalmSub {
+                        0% { d: path("M 0,20 Q 25,25 50,20 T 100,20 T 150,20 T 200,20"); }
+                        50% { d: path("M 0,20 Q 25,15 50,20 T 100,20 T 150,20 T 200,20"); }
+                        100% { d: path("M 0,20 Q 25,25 50,20 T 100,20 T 150,20 T 200,20"); }
+                    }
+
+                    @keyframes waveMoveExcited {
+                        0% { d: path("M 0,20 Q 15,4 30,20 T 60,20 T 90,20 T 120,20 T 150,20 T 180,20 T 200,20"); }
+                        50% { d: path("M 0,20 Q 15,36 30,20 T 60,20 T 90,20 T 120,20 T 150,20 T 180,20 T 200,20"); }
+                        100% { d: path("M 0,20 Q 15,4 30,20 T 60,20 T 90,20 T 120,20 T 150,20 T 180,20 T 200,20"); }
+                    }
+                    @keyframes waveMoveExcitedSub {
+                        0% { d: path("M 0,20 Q 15,32 30,20 T 60,20 T 90,20 T 120,20 T 150,20 T 180,20 T 200,20"); }
+                        50% { d: path("M 0,20 Q 15,8 30,20 T 60,20 T 90,20 T 120,20 T 150,20 T 180,20 T 200,20"); }
+                        100% { d: path("M 0,20 Q 15,32 30,20 T 60,20 T 90,20 T 120,20 T 150,20 T 180,20 T 200,20"); }
+                    }
+
+                    @keyframes waveMoveFatigued {
+                        0% { d: path("M 0,20 Q 50,16 100,20 T 200,20"); }
+                        50% { d: path("M 0,20 Q 50,24 100,20 T 200,20"); }
+                        100% { d: path("M 0,20 Q 50,16 100,20 T 200,20"); }
+                    }
+                    @keyframes waveMoveFatiguedSub {
+                        0% { d: path("M 0,20 Q 50,23 100,20 T 200,20"); }
+                        50% { d: path("M 0,20 Q 50,17 100,20 T 200,20"); }
+                        100% { d: path("M 0,20 Q 50,23 100,20 T 200,20"); }
+                    }
+
+                    @keyframes waveMoveStressed {
+                        0% { d: path("M 0,20 Q 8,4 16,20 T 32,20 T 48,20 T 64,20 T 80,20 T 96,20 T 112,20 T 128,20 T 144,20 T 160,20 T 176,20 T 192,20 T 200,20"); }
+                        50% { d: path("M 0,20 Q 8,36 16,20 T 32,20 T 48,20 T 64,20 T 80,20 T 96,20 T 112,20 T 128,20 T 144,20 T 160,20 T 176,20 T 192,20 T 200,20"); }
+                        100% { d: path("M 0,20 Q 8,4 16,20 T 32,20 T 48,20 T 64,20 T 80,20 T 96,20 T 112,20 T 128,20 T 144,20 T 160,20 T 176,20 T 192,20 T 200,20"); }
+                    }
+                    @keyframes waveMoveStressedSub {
+                        0% { d: path("M 0,20 Q 8,32 16,20 T 32,20 T 48,20 T 64,20 T 80,20 T 96,20 T 112,20 T 128,20 T 144,20 T 160,20 T 176,20 T 192,20 T 200,20"); }
+                        50% { d: path("M 0,20 Q 8,8 16,20 T 32,20 T 48,20 T 64,20 T 80,20 T 96,20 T 112,20 T 128,20 T 144,20 T 160,20 T 176,20 T 192,20 T 200,20"); }
+                        100% { d: path("M 0,20 Q 8,32 16,20 T 32,20 T 48,20 T 64,20 T 80,20 T 96,20 T 112,20 T 128,20 T 144,20 T 160,20 T 176,20 T 192,20 T 200,20"); }
+                    }
+                </style>
+                <div style="display: flex; flex-direction: column; justify-content: center; min-width: 80px;">
+                    <span style="font-family: 'Orbitron', sans-serif; font-size: 0.6rem; color: var(--text-muted); letter-spacing: 1.2px;">EMOTION SENSOR</span>
+                    <span id="emotion-state-text" style="font-family: 'Orbitron', sans-serif; font-size: 0.95rem; font-weight: 900; color: #00f2fe; margin-top: 2px; text-shadow: 0 0 5px currentColor;">CALM</span>
+                </div>
+                <!-- SVG Holographic Wave -->
+                <svg id="emotion-waves-svg" viewBox="0 0 200 40" style="flex: 1; height: 35px; margin: 0 16px;">
+                    <path class="wave-path" d="M 0,20 Q 25,20 50,20 T 100,20 T 150,20 T 200,20" fill="none" stroke="#00f2fe" stroke-width="2" stroke-linecap="round"></path>
+                    <path class="wave-path-sub" d="M 0,20 Q 25,20 50,20 T 100,20 T 150,20 T 200,20" fill="none" stroke="#00f2fe" stroke-width="1" stroke-opacity="0.45" stroke-linecap="round"></path>
+                </svg>
+                <div style="text-align: right; display: flex; flex-direction: column; justify-content: center; min-width: 90px;">
+                    <span style="font-family: 'Orbitron', sans-serif; font-size: 0.6rem; color: var(--text-muted); letter-spacing: 1px;">PITCH / STRESS</span>
+                    <span id="emotion-score-text" style="font-family: 'Orbitron', sans-serif; font-size: 0.85rem; font-weight: bold; color: var(--text-color); margin-top: 2px;">120.0 Hz / 50%</span>
+                </div>
+            </div>
+            
             <div id="chat-box">
                 <div class="chat-message system">자비스 AI 코어 접속 완료. 명령을 입력하세요.</div>
             </div>
@@ -1173,14 +1301,21 @@
             constructor() {
                 this.audioCtx = null;
                 this.masterGain = null;
-                this.osc1 = null;
-                this.osc2 = null;
+                this.osc1 = null;      // 60Hz Sine (Base)
+                this.osc1b = null;     // 60.6Hz Sine (Detuned for beating)
+                this.osc2 = null;      // 120Hz Triangle (Harmonic)
+                this.osc3 = null;      // 180Hz Sawtooth (Subtle metal buzz)
+                this.osc4 = null;      // 240Hz Sine (High resonance harmonic)
                 this.noiseNode = null;
-                this.lfo = null;
+                this.lfo1 = null;      // Slow Vibrato (1.3Hz)
+                this.lfo2 = null;      // Fast Buzz (45Hz) - 전기적 진동감
+                this.noiseLfo = null;  // Noise filter sweep (0.04Hz)
+                this.beepInterval = null;
+                this.sparkTimeout = null;
                 this.isEnabled = false;
                 this.isMutedForMic = false;
-                this.normalVolume = 0.18; // Increased from 0.06 to be audible on standard speakers
-                this.duckedVolume = 0.035; // Increased from 0.012 for ducking visibility
+                this.normalVolume = 0.15;
+                this.duckedVolume = 0.02;
             }
 
             init() {
@@ -1192,25 +1327,90 @@
                 this.masterGain.gain.setValueAtTime(0, this.audioCtx.currentTime);
                 this.masterGain.connect(this.audioCtx.destination);
                 
-                // 1. Base Power Hum (Oscillator 1 - Sine at 90Hz, raised from 55Hz)
+                // 1. Base Power Hum & Detuned Beating (60Hz / 60.6Hz)
                 this.osc1 = this.audioCtx.createOscillator();
                 this.osc1.type = 'sine';
-                this.osc1.frequency.setValueAtTime(90, this.audioCtx.currentTime);
+                this.osc1.frequency.setValueAtTime(60, this.audioCtx.currentTime);
                 
-                // 2. Chorus Detuned Hum (Oscillator 2 - Triangle at 180.5Hz, raised from 110.5Hz)
+                this.osc1b = this.audioCtx.createOscillator();
+                this.osc1b.type = 'sine';
+                this.osc1b.frequency.setValueAtTime(60.6, this.audioCtx.currentTime);
+                
+                // 2. High Engine Hum & Metallic Buzz (120Hz Triangle / 180Hz Sawtooth)
                 this.osc2 = this.audioCtx.createOscillator();
                 this.osc2.type = 'triangle';
-                this.osc2.frequency.setValueAtTime(180.5, this.audioCtx.currentTime);
+                this.osc2.frequency.setValueAtTime(120, this.audioCtx.currentTime);
                 
+                this.osc3 = this.audioCtx.createOscillator();
+                this.osc3.type = 'sawtooth';
+                this.osc3.frequency.setValueAtTime(180, this.audioCtx.currentTime);
+                
+                // 3. Ultra-High Resonance (240Hz Sine)
+                this.osc4 = this.audioCtx.createOscillator();
+                this.osc4.type = 'sine';
+                this.osc4.frequency.setValueAtTime(240, this.audioCtx.currentTime);
+
                 const lowpass = this.audioCtx.createBiquadFilter();
                 lowpass.type = 'lowpass';
-                lowpass.frequency.setValueAtTime(200, this.audioCtx.currentTime); // Raised from 120Hz to allow 180.5Hz harmonics
-                lowpass.Q.setValueAtTime(1.0, this.audioCtx.currentTime);
+                lowpass.frequency.setValueAtTime(220, this.audioCtx.currentTime);
+                lowpass.Q.setValueAtTime(1.8, this.audioCtx.currentTime);
                 
-                this.osc1.connect(lowpass);
-                this.osc2.connect(lowpass);
+                // Gain Nodes for Balancing
+                const baseGain = this.audioCtx.createGain();
+                baseGain.gain.setValueAtTime(0.6, this.audioCtx.currentTime);
+                this.osc1.connect(baseGain);
                 
-                // 3. Pink Noise for ventilator air flow simulation
+                const detuneGain = this.audioCtx.createGain();
+                detuneGain.gain.setValueAtTime(0.4, this.audioCtx.currentTime);
+                this.osc1b.connect(detuneGain);
+                
+                const osc2Gain = this.audioCtx.createGain();
+                osc2Gain.gain.setValueAtTime(0.25, this.audioCtx.currentTime);
+                this.osc2.connect(osc2Gain);
+                
+                const osc3Gain = this.audioCtx.createGain();
+                osc3Gain.gain.setValueAtTime(0.04, this.audioCtx.currentTime);
+                this.osc3.connect(osc3Gain);
+                
+                const osc4Gain = this.audioCtx.createGain();
+                osc4Gain.gain.setValueAtTime(0.06, this.audioCtx.currentTime);
+                this.osc4.connect(osc4Gain);
+                
+                // Connect Oscillators to Lowpass Filter
+                baseGain.connect(lowpass);
+                detuneGain.connect(lowpass);
+                osc2Gain.connect(lowpass);
+                osc3Gain.connect(lowpass);
+                osc4Gain.connect(lowpass);
+                
+                // 4. Modulators (LFOs)
+                this.lfo1 = this.audioCtx.createOscillator();
+                this.lfo1.type = 'sine';
+                this.lfo1.frequency.setValueAtTime(1.3, this.audioCtx.currentTime);
+                
+                const lfo1Gain = this.audioCtx.createGain();
+                lfo1Gain.gain.setValueAtTime(2.0, this.audioCtx.currentTime);
+                
+                this.lfo1.connect(lfo1Gain);
+                lfo1Gain.connect(this.osc1.frequency);
+                lfo1Gain.connect(this.osc1b.frequency);
+                lfo1Gain.connect(this.osc2.frequency);
+                lfo1Gain.connect(this.osc3.frequency);
+                lfo1Gain.connect(this.osc4.frequency);
+                
+                this.lfo2 = this.audioCtx.createOscillator();
+                this.lfo2.type = 'sine';
+                this.lfo2.frequency.setValueAtTime(45, this.audioCtx.currentTime);
+                
+                const lfo2Gain = this.audioCtx.createGain();
+                lfo2Gain.gain.setValueAtTime(0.8, this.audioCtx.currentTime);
+                
+                this.lfo2.connect(lfo2Gain);
+                lfo2Gain.connect(this.osc1.frequency);
+                lfo2Gain.connect(this.osc1b.frequency);
+                lfo2Gain.connect(this.osc2.frequency);
+                
+                // 5. Pink Noise with High Resonance Bandpass Filter
                 const bufferSize = 2 * this.audioCtx.sampleRate;
                 const noiseBuffer = this.audioCtx.createBuffer(1, bufferSize, this.audioCtx.sampleRate);
                 const output = noiseBuffer.getChannelData(0);
@@ -1225,7 +1425,7 @@
                     b4 = 0.55000 * b4 + white * 0.5329522;
                     b5 = -0.7616 * b5 - white * 0.0168980;
                     output[i] = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
-                    output[i] *= 0.11;
+                    output[i] *= 0.06;
                     b6 = white * 0.115926;
                 }
                 
@@ -1235,36 +1435,99 @@
                 
                 const bandpass = this.audioCtx.createBiquadFilter();
                 bandpass.type = 'bandpass';
-                bandpass.frequency.setValueAtTime(260, this.audioCtx.currentTime); // Adjusted to 260Hz for cooling sweep
-                bandpass.Q.setValueAtTime(2.0, this.audioCtx.currentTime);
+                bandpass.frequency.setValueAtTime(380, this.audioCtx.currentTime); 
+                bandpass.Q.setValueAtTime(16.0, this.audioCtx.currentTime);
                 
                 this.noiseNode.connect(bandpass);
                 
-                // 4. LFO to slowly modulate noise filter cutoff (breathing effect)
-                this.lfo = this.audioCtx.createOscillator();
-                this.lfo.type = 'sine';
-                this.lfo.frequency.setValueAtTime(0.1, this.audioCtx.currentTime);
+                this.noiseLfo = this.audioCtx.createOscillator();
+                this.noiseLfo.type = 'sine';
+                this.noiseLfo.frequency.setValueAtTime(0.04, this.audioCtx.currentTime);
                 
-                const lfoGain = this.audioCtx.createGain();
-                lfoGain.gain.setValueAtTime(40, this.audioCtx.currentTime);
+                const noiseLfoGain = this.audioCtx.createGain();
+                noiseLfoGain.gain.setValueAtTime(120, this.audioCtx.currentTime);
                 
-                this.lfo.connect(lfoGain);
-                lfoGain.connect(bandpass.frequency);
+                this.noiseLfo.connect(noiseLfoGain);
+                noiseLfoGain.connect(bandpass.frequency);
                 
-                const oscGain = this.audioCtx.createGain();
-                oscGain.gain.setValueAtTime(0.7, this.audioCtx.currentTime);
-                lowpass.connect(oscGain);
-                oscGain.connect(this.masterGain);
+                // Master Connect
+                const filterGain = this.audioCtx.createGain();
+                filterGain.gain.setValueAtTime(0.8, this.audioCtx.currentTime);
+                lowpass.connect(filterGain);
+                filterGain.connect(this.masterGain);
                 
                 const noiseGain = this.audioCtx.createGain();
-                noiseGain.gain.setValueAtTime(0.3, this.audioCtx.currentTime);
+                noiseGain.gain.setValueAtTime(0.012, this.audioCtx.currentTime);
                 bandpass.connect(noiseGain);
                 noiseGain.connect(this.masterGain);
                 
+                // Start Sources
                 this.osc1.start();
+                this.osc1b.start();
                 this.osc2.start();
+                this.osc3.start();
+                this.osc4.start();
                 this.noiseNode.start();
-                this.lfo.start();
+                this.lfo1.start();
+                this.lfo2.start();
+                this.noiseLfo.start();
+            }
+
+            triggerDataBeep() {
+                if (!this.isEnabled || this.isMutedForMic || !this.audioCtx) return;
+                const now = this.audioCtx.currentTime;
+                
+                const beepOsc = this.audioCtx.createOscillator();
+                const beepGain = this.audioCtx.createGain();
+                beepOsc.connect(beepGain);
+                beepGain.connect(this.masterGain);
+                
+                beepOsc.type = 'sine';
+                const freq = 1500 + Math.random() * 300;
+                beepOsc.frequency.setValueAtTime(freq, now);
+                
+                beepGain.gain.setValueAtTime(0, now);
+                beepGain.gain.linearRampToValueAtTime(0.005, now + 0.005);
+                beepGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.06);
+                
+                beepOsc.start(now);
+                beepOsc.stop(now + 0.07);
+            }
+
+            triggerSparkCrackle() {
+                if (!this.isEnabled || this.isMutedForMic || !this.audioCtx) return;
+                const now = this.audioCtx.currentTime;
+                const crackleCount = 2 + Math.floor(Math.random() * 3);
+                
+                for (let i = 0; i < crackleCount; i++) {
+                    const delay = i * (0.01 + Math.random() * 0.03);
+                    const t = now + delay;
+                    
+                    const osc = this.audioCtx.createOscillator();
+                    const filter = this.audioCtx.createBiquadFilter();
+                    const gain = this.audioCtx.createGain();
+                    
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(2000 + Math.random() * 3000, t);
+                    
+                    filter.type = 'bandpass';
+                    filter.frequency.setValueAtTime(4000, t);
+                    filter.Q.setValueAtTime(8, t);
+                    
+                    gain.gain.setValueAtTime(0, t);
+                    gain.gain.linearRampToValueAtTime(0.0015, t + 0.001);
+                    gain.gain.exponentialRampToValueAtTime(0.00001, t + 0.005);
+                    
+                    osc.connect(filter);
+                    filter.connect(gain);
+                    gain.connect(this.masterGain);
+                    
+                    osc.start(t);
+                    osc.stop(t + 0.01);
+                }
+                
+                const nextDelay = 4000 + Math.random() * 5000;
+                this.sparkTimeout = setTimeout(() => this.triggerSparkCrackle(), nextDelay);
             }
 
             start() {
@@ -1275,10 +1538,24 @@
                 }
                 const targetVol = this.isMutedForMic ? 0 : this.normalVolume;
                 this.masterGain.gain.linearRampToValueAtTime(targetVol, this.audioCtx.currentTime + 1.5);
+                
+                if (this.beepInterval) clearInterval(this.beepInterval);
+                this.beepInterval = setInterval(() => this.triggerDataBeep(), 7500);
+                
+                if (this.sparkTimeout) clearTimeout(this.sparkTimeout);
+                this.sparkTimeout = setTimeout(() => this.triggerSparkCrackle(), 3000);
             }
 
             stop() {
                 this.isEnabled = false;
+                if (this.beepInterval) {
+                    clearInterval(this.beepInterval);
+                    this.beepInterval = null;
+                }
+                if (this.sparkTimeout) {
+                    clearTimeout(this.sparkTimeout);
+                    this.sparkTimeout = null;
+                }
                 if (!this.masterGain) return;
                 this.masterGain.gain.linearRampToValueAtTime(0, this.audioCtx.currentTime + 1.0);
             }
@@ -1304,14 +1581,20 @@
                 if (!this.audioCtx || !this.isEnabled) return;
                 const now = this.audioCtx.currentTime;
                 if (isThinking) {
-                    // Increase frequency of humming sound to represent system load (shifted up)
-                    if (this.osc1) this.osc1.frequency.linearRampToValueAtTime(130, now + 0.4);
-                    if (this.osc2) this.osc2.frequency.linearRampToValueAtTime(260, now + 0.4);
-                    this.masterGain.gain.linearRampToValueAtTime(this.normalVolume * 1.6, now + 0.4);
+                    if (this.osc1) this.osc1.frequency.linearRampToValueAtTime(110, now + 0.4);
+                    if (this.osc1b) this.osc1b.frequency.linearRampToValueAtTime(110.8, now + 0.4);
+                    if (this.osc2) this.osc2.frequency.linearRampToValueAtTime(220, now + 0.4);
+                    if (this.osc3) this.osc3.frequency.linearRampToValueAtTime(330, now + 0.4);
+                    if (this.osc4) this.osc4.frequency.linearRampToValueAtTime(440, now + 0.4);
+                    if (this.lfo1) this.lfo1.frequency.linearRampToValueAtTime(4.5, now + 0.4);
+                    this.masterGain.gain.linearRampToValueAtTime(this.normalVolume * 1.5, now + 0.4);
                 } else {
-                    // Restore to normal (shifted up)
-                    if (this.osc1) this.osc1.frequency.linearRampToValueAtTime(90, now + 0.8);
-                    if (this.osc2) this.osc2.frequency.linearRampToValueAtTime(180.5, now + 0.8);
+                    if (this.osc1) this.osc1.frequency.linearRampToValueAtTime(60, now + 0.8);
+                    if (this.osc1b) this.osc1b.frequency.linearRampToValueAtTime(60.6, now + 0.8);
+                    if (this.osc2) this.osc2.frequency.linearRampToValueAtTime(120, now + 0.8);
+                    if (this.osc3) this.osc3.frequency.linearRampToValueAtTime(180, now + 0.8);
+                    if (this.osc4) this.osc4.frequency.linearRampToValueAtTime(240, now + 0.8);
+                    if (this.lfo1) this.lfo1.frequency.linearRampToValueAtTime(1.3, now + 0.8);
                     const targetVol = this.isMutedForMic ? 0 : this.normalVolume;
                     this.masterGain.gain.linearRampToValueAtTime(targetVol, now + 0.8);
                 }
@@ -1909,6 +2192,8 @@
         let isContinuousSession = false; // 연속 대화 세션 활성화 플래그
         let continuousSessionTimeout = null; // 연속 대화 타임아웃 타이머 핸들러
         const continuousSessionDuration = 8000; // 연속 대화 대기 시간 (8초)
+        let shouldStartSTTAfterWakeWord = false; // Wake Word 인식 후 안전한 STT 전환용 예약 플래그
+        let isUserSpeaking = false; // 사용자가 현재 STT 마이크에 대고 말하는 중인지 여부
 
         // Web Audio API를 사용한 자비스 효과음 합성 함수
         function synthesizeJarvisSound(type) {
@@ -2009,6 +2294,38 @@
             }
         }
 
+        // 실시간 감정 HUD UI 갱신 함수
+        function updateEmotionHUD(emotionData) {
+            const hud = document.getElementById('emotion-hud');
+            const stateText = document.getElementById('emotion-state-text');
+            const scoreText = document.getElementById('emotion-score-text');
+            if (!hud || !stateText || !scoreText) return;
+            
+            const state = emotionData.state || 'Calm';
+            const score = emotionData.score || 50;
+            const pitch = emotionData.pitch_hz || 120;
+            
+            // 기존 클래스 제거
+            hud.classList.remove('hud-calm', 'hud-excited', 'hud-fatigued', 'hud-stressed');
+            
+            // 신규 클래스 추가 및 텍스트 갱신
+            if (state === 'Calm') {
+                hud.classList.add('hud-calm');
+                stateText.innerText = 'CALM';
+            } else if (state === 'Excited') {
+                hud.classList.add('hud-excited');
+                stateText.innerText = 'EXCITED';
+            } else if (state === 'Fatigued') {
+                hud.classList.add('hud-fatigued');
+                stateText.innerText = 'FATIGUED';
+            } else if (state === 'Stressed') {
+                hud.classList.add('hud-stressed');
+                stateText.innerText = 'STRESSED';
+            }
+            
+            scoreText.innerText = `${pitch} Hz / ${score}%`;
+        }
+
         // 음성 호출(Wake Word) 감지기 초기화 함수
         function initWakeWordListener() {
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -2028,6 +2345,16 @@
             wakeWordRecognition.onend = () => {
                 console.log("Wake word detection ended.");
                 isWakeWordListening = false;
+                
+                // Wake word가 정상 감지되어 STT를 켜야 하는 상황이라면 예약된 전환 기동
+                if (shouldStartSTTAfterWakeWord) {
+                    shouldStartSTTAfterWakeWord = false;
+                    console.log("Wake Word session fully closed. Starting STT in 100ms...");
+                    setTimeout(() => {
+                        startSpeechRecognition();
+                    }, 100);
+                    return;
+                }
                 
                 const isToggled = document.getElementById('wakeWordToggle')?.checked;
                 if (isToggled && !isSpeechRecognizing && !isProcessingChat) {
@@ -2050,12 +2377,11 @@
                 if (transcript.includes("자비스") || transcript.includes("자비스야")) {
                     console.log("Wake word detected!");
                     playJarvisSound('wake_word');
-                    stopWakeWordListening();
                     
-                    // 조금의 지연을 주어 효과음이 울리는 동안 음성인식을 켬
-                    setTimeout(() => {
-                        startSpeechRecognition();
-                    }, 150);
+                    // 즉시 음성 인식 활성화를 마킹하고, 안전 전이 예약 플래그 설정
+                    isSpeechRecognizing = true;
+                    shouldStartSTTAfterWakeWord = true;
+                    stopWakeWordListening(); // onend를 비동기 호출하게 됨
                 }
             };
 
@@ -2063,7 +2389,6 @@
                 console.error("Wake word recognition error:", event.error);
                 
                 if (event.error === 'network' || event.error === 'not-allowed') {
-                    // 크리티컬 에러 발생 시 반복 재기동 방지를 위해 토글 해제 및 모드 종료
                     const toggle = document.getElementById('wakeWordToggle');
                     if (toggle) {
                         toggle.checked = false;
@@ -2126,16 +2451,23 @@
             jarvisSoundscape.setThinking(false);
             const toggle = document.getElementById('wakeWordToggle');
             if (toggle && toggle.checked) {
-                // 연속 대화 세션 활성화 및 8초 카운트다운 시작
                 isContinuousSession = true;
+                isUserSpeaking = false; // 상태 초기화
                 console.log("[Continuous Session] Started. Active for " + (continuousSessionDuration / 1000) + "s.");
                 
                 if (continuousSessionTimeout) clearTimeout(continuousSessionTimeout);
-                continuousSessionTimeout = setTimeout(() => {
+                
+                const timeoutHandler = () => {
                     if (isContinuousSession) {
+                        if (isUserSpeaking) {
+                            // 사용자가 여전히 말하는 중이라면 타이머를 3초 추가 연장하고 지켜본다
+                            console.log("[Continuous Session] User is currently speaking. Extending session by 3s.");
+                            continuousSessionTimeout = setTimeout(timeoutHandler, 3000);
+                            return;
+                        }
+                        
                         isContinuousSession = false;
                         console.log("[Continuous Session] Timeout reached. Returning to wake word mode.");
-                        // 만약 현재 음성 인식 상태라면 stop해 줍니다.
                         if (isSpeechRecognizing && recognition) {
                             recognition.stop();
                         }
@@ -2145,7 +2477,9 @@
                             updateTerminalGlow(false);
                         }
                     }
-                }, continuousSessionDuration);
+                };
+                
+                continuousSessionTimeout = setTimeout(timeoutHandler, continuousSessionDuration);
 
                 // 안전 지연시간 후 연속 대화 마이크 활성화
                 setTimeout(() => {
@@ -2192,11 +2526,11 @@
                 jarvisSoundscape.duck();
 
                 let response;
-                if (voiceLockActive) {
-                    // Voice Lock 활성화 시 FormData 객체에 음성 파일 포함하여 전송
+                if (voiceLockActive || lastRecordedWavBlob) {
+                    // Voice Lock이 활성화되었거나 녹음된 음성 파일이 있는 경우 FormData로 전송
                     const formData = new FormData();
                     formData.append('message', message);
-                    formData.append('voice_lock', 'true');
+                    formData.append('voice_lock', voiceLockActive ? 'true' : 'false');
                     if (lastRecordedWavBlob) {
                         formData.append('voice_file', lastRecordedWavBlob, 'command.wav');
                     }
@@ -2221,6 +2555,11 @@
                 }
 
                 const data = await response.json();
+                
+                // 감정 HUD 정보가 반환되면 센서 데이터 업데이트
+                if (data.emotion) {
+                    updateEmotionHUD(data.emotion);
+                }
                 
                 // 4. 대기 메시지 제거 및 실제 답변 렌더링
                 const thinkingElement = document.getElementById(thinkingId);
@@ -2308,40 +2647,41 @@
             recognition.onstart = async () => {
                 isSpeechRecognizing = true;
                 hasSpeechResult = false;
+                isUserSpeaking = false; // 말하기 시작 상태 초기화
                 stopWakeWordListening();
                 updateTerminalGlow(true, 'listening');
                 voiceBtn.innerText = '🛑 음성 인식 중...';
                 voiceBtn.style.background = 'linear-gradient(135deg, #ef4444, #b91c1c)';
                 voiceBtn.style.boxShadow = '0 0 15px rgba(239, 68, 68, 0.5)';
 
-                // 연속 대화 감지 활성화 상태라면, 녹음 개시 중에는 타임아웃 타이머 잠시 클리어
-                if (continuousSessionTimeout) {
-                    clearTimeout(continuousSessionTimeout);
-                    continuousSessionTimeout = null;
-                }
-
                 jarvisSoundscape.setMuteForMic(true);
 
-                if (voiceLockActive) {
-                    lastRecordedWavBlob = null;
-                    activeWavRecorder = new WAVRecorder();
-                    try {
-                        await activeWavRecorder.start();
-                    } catch (err) {
-                        console.error("Failed to start voice lock recorder:", err);
-                    }
+                // 음성 입력을 사용할 때는 항상 감정 분석/성문 검증을 위해 WAV 녹음 기동
+                lastRecordedWavBlob = null;
+                activeWavRecorder = new WAVRecorder();
+                try {
+                    await activeWavRecorder.start();
+                } catch (err) {
+                    console.error("Failed to start voice recorder:", err);
                 }
+            };
+
+            // 사용자가 말하기 시작한 시점 포착하여 세션 연장 플래그 설정
+            recognition.onspeechstart = () => {
+                isUserSpeaking = true;
+                console.log("[STT] User speech detected. Lock session extension.");
             };
 
             recognition.onend = () => {
                 isSpeechRecognizing = false;
+                isUserSpeaking = false;
                 voiceBtn.innerText = '🎤 음성 입력';
                 voiceBtn.style.background = 'linear-gradient(135deg, #dc2626, #991b1b)';
                 voiceBtn.style.boxShadow = 'none';
                 
                 jarvisSoundscape.setMuteForMic(false);
                 
-                if (voiceLockActive && activeWavRecorder && !hasSpeechResult) {
+                if (activeWavRecorder && !hasSpeechResult) {
                     try {
                         activeWavRecorder.stop();
                     } catch (err) {}
@@ -2373,7 +2713,11 @@
 
             recognition.onerror = (event) => {
                 console.error('Speech recognition error:', event.error);
-                if (voiceLockActive && activeWavRecorder) {
+                isSpeechRecognizing = false;
+                isUserSpeaking = false;
+                jarvisSoundscape.setMuteForMic(false);
+
+                if (activeWavRecorder) {
                     try {
                         activeWavRecorder.stop();
                     } catch (err) {}
@@ -2406,11 +2750,11 @@
                 const resultText = event.results[0][0].transcript;
                 input.value = resultText;
 
-                if (voiceLockActive && activeWavRecorder) {
+                if (activeWavRecorder) {
                     try {
                         lastRecordedWavBlob = activeWavRecorder.stop();
                     } catch (err) {
-                        console.error("Failed to stop voice lock recorder:", err);
+                        console.error("Failed to stop voice recorder:", err);
                     }
                 }
 
@@ -2510,6 +2854,10 @@
                 if (!response.ok) return;
                 const data = await response.json();
                 
+                if (data.emotion) {
+                    updateEmotionHUD(data.emotion);
+                }
+                
                 if (data.triggered && data.response) {
                     appendChatMessage('jarvis', data.response);
                     if (data.audio) {
@@ -2543,6 +2891,9 @@
 
         // 페이지 로드 즉시 실행 및 엔터 키 바인딩
         document.addEventListener('DOMContentLoaded', () => {
+            // 감정 HUD 초기상태를 Calm으로 설정
+            updateEmotionHUD({ state: 'Calm', score: 50, pitch_hz: 120.0 });
+
             // PWA 서비스 워커 등록
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.register('/sw.js')

@@ -1092,35 +1092,328 @@ def extract_mfcc_from_bytes(audio_bytes: bytes) -> np.ndarray:
     ])
     return feat_vec  # 80차원
 
+def extract_mfcc_frames(audio_bytes: bytes) -> np.ndarray:
+    """WAV 바이트 데이터로부터 프레임 단위의 MFCC 시퀀스를 추출합니다.
+    형태: (num_frames, 40) - [MFCC(20), Delta(20)]
+    NumPy만을 사용하여 가볍고 빠르게 동작합니다.
+    """
+    import io
+    import wave
+    try:
+        with wave.open(io.BytesIO(audio_bytes), 'rb') as wav:
+            params = wav.getparams()
+            nchannels, sampwidth, framerate, nframes = params[:4]
+            if sampwidth != 2:
+                raise ValueError("Only 16-bit PCM WAV is supported")
+            raw_data = wav.readframes(nframes)
+            signal = np.frombuffer(raw_data, dtype=np.int16).astype(np.float32)
+            if nchannels > 1:
+                signal = signal.reshape(-1, nchannels).mean(axis=1)
+            signal /= 32768.0
+            
+            # RMS 볼륨 정규화 (볼륨 크기 편차에 의한 오인식 방지)
+            rms = np.sqrt(np.mean(signal ** 2))
+            if rms > 1e-5:
+                signal = signal * (0.05 / rms)
+    except Exception as e:
+        print(f"[MFCC Frames Extractor] Error parsing WAV bytes: {e}")
+        return None
+
+    # MFCC 파라미터 — 계수 20개로 확장
+    frame_len = int(0.025 * framerate)  # 25ms
+    frame_step = int(0.010 * framerate)  # 10ms
+    n_fft = 512
+    if frame_len > n_fft:
+        frame_len = n_fft
+    n_mfcc = 20
+    n_filters = 40
+
+    # Pre-emphasis
+    signal = np.append(signal[0], signal[1:] - 0.97 * signal[:-1])
+
+    signal_len = len(signal)
+    if signal_len <= frame_len:
+        return np.zeros((1, n_mfcc * 2))
+
+    # Framing & Windowing
+    num_frames = int(np.ceil(float(np.abs(signal_len - frame_len)) / frame_step))
+    pad_signal_len = num_frames * frame_step + frame_len
+    pad_signal = np.append(signal, np.zeros(pad_signal_len - signal_len))
+    indices = (np.tile(np.arange(0, frame_len), (num_frames, 1)) +
+               np.tile(np.arange(0, num_frames * frame_step, frame_step), (frame_len, 1)).T)
+    frames = pad_signal[indices.astype(np.int32, copy=False)]
+    frames *= np.hamming(frame_len)
+
+    # FFT & Power Spectrum
+    mag_frames = np.absolute(np.fft.rfft(frames, n_fft))
+    pow_frames = (1.0 / n_fft) * (mag_frames ** 2)
+
+    # Mel Filterbank
+    def hz_to_mel(hz):
+        return 2595.0 * np.log10(1.0 + hz / 700.0)
+    def mel_to_hz(mel):
+        return 700.0 * (10.0 ** (mel / 2595.0) - 1.0)
+
+    low_mel = hz_to_mel(0)
+    high_mel = hz_to_mel(framerate / 2)
+    mel_pts = np.linspace(low_mel, high_mel, n_filters + 2)
+    hz_pts = mel_to_hz(mel_pts)
+    bin_pts = np.floor((n_fft + 1) * hz_pts / framerate).astype(np.int32)
+
+    fbank = np.zeros((n_filters, n_fft // 2 + 1))
+    for m in range(1, n_filters + 1):
+        f_m_minus = bin_pts[m - 1]
+        f_m = bin_pts[m]
+        f_m_plus = bin_pts[m + 1]
+        for k in range(f_m_minus, f_m):
+            if f_m != f_m_minus:
+                fbank[m - 1, k] = (k - f_m_minus) / (f_m - f_m_minus)
+        for k in range(f_m, f_m_plus):
+            if f_m_plus != f_m:
+                fbank[m - 1, k] = (f_m_plus - k) / (f_m_plus - f_m)
+
+    filter_energies = np.dot(pow_frames, fbank.T)
+    filter_energies = np.where(filter_energies == 0, np.finfo(float).eps, filter_energies)
+    log_filter_energies = np.log(filter_energies)
+
+    # DCT
+    dct_matrix = np.zeros((n_mfcc, n_filters))
+    for i in range(n_mfcc):
+        for j in range(n_filters):
+            dct_matrix[i, j] = np.cos(np.pi * i * (2.0 * j + 1.0) / (2.0 * n_filters))
+    mfccs = np.dot(log_filter_energies, dct_matrix.T)  # shape: (num_frames, n_mfcc)
+
+    # Delta MFCC 계산
+    def compute_delta(feat_matrix, N=2):
+        num_f, num_c = feat_matrix.shape
+        delta = np.zeros_like(feat_matrix)
+        denom = 2.0 * sum(i ** 2 for i in range(1, N + 1))
+        for t in range(num_f):
+            for n in range(1, N + 1):
+                t_plus = min(t + n, num_f - 1)
+                t_minus = max(t - n, 0)
+                delta[t] += n * (feat_matrix[t_plus] - feat_matrix[t_minus])
+        return delta / (denom if denom != 0 else 1.0)
+
+    delta_mfcc = compute_delta(mfccs)
+    
+    # 2차원 특징 맵 조합: (num_frames, 40)
+    feat_frames = np.hstack([mfccs, delta_mfcc])
+    return feat_frames
+
+
+def calculate_dtw_distance(s1: np.ndarray, s2: np.ndarray) -> float:
+    """두 MFCC 프레임 시퀀스(2차원 배열) 사이의 DTW(Dynamic Time Warping) 거리를 계산합니다.
+    s1: (N, D), s2: (M, D)
+    """
+    if s1 is None or s2 is None or len(s1) == 0 or len(s2) == 0:
+        return float('inf')
+    
+    N = len(s1)
+    M = len(s2)
+    
+    # 계산 속도 최적화를 위해 긴 시퀀스는 다운샘플링 진행 (최대 150프레임 제한)
+    max_len = 150
+    if N > max_len:
+        indices = np.linspace(0, N - 1, max_len, dtype=int)
+        s1 = s1[indices]
+        N = len(s1)
+    if M > max_len:
+        indices = np.linspace(0, M - 1, max_len, dtype=int)
+        s2 = s2[indices]
+        M = len(s2)
+        
+    # 벡터 정규화
+    norm_s1 = np.linalg.norm(s1, axis=1, keepdims=True)
+    norm_s2 = np.linalg.norm(s2, axis=1, keepdims=True)
+    norm_s1[norm_s1 == 0] = 1.0
+    norm_s2[norm_s2 == 0] = 1.0
+    s1_norm = s1 / norm_s1
+    s2_norm = s2 / norm_s2
+    
+    # 코사인 유사도 행렬 계산 후 코사인 거리로 변환
+    cosine_sim = np.dot(s1_norm, s2_norm.T)
+    dist_matrix = 1.0 - cosine_sim
+    
+    # DTW DP 테이블 초기화 및 누적 비용 계산
+    dtw_matrix = np.zeros((N, M))
+    dtw_matrix[0, 0] = dist_matrix[0, 0]
+    
+    for i in range(1, N):
+        dtw_matrix[i, 0] = dtw_matrix[i - 1, 0] + dist_matrix[i, 0]
+    for j in range(1, M):
+        dtw_matrix[0, j] = dtw_matrix[0, j - 1] + dist_matrix[0, j]
+        
+    for i in range(1, N):
+        for j in range(1, M):
+            cost = dist_matrix[i, j]
+            dtw_matrix[i, j] = cost + min(dtw_matrix[i - 1, j],
+                                          dtw_matrix[i, j - 1],
+                                          dtw_matrix[i - 1, j - 1])
+            
+    return float(dtw_matrix[N - 1, M - 1] / (N + M))
+
+
+def analyze_voice_emotion(audio_bytes: bytes) -> dict:
+    """WAV 바이트 데이터를 분석하여 피치(F0), Jitter, Shimmer, RMS 에너지를 추출하고
+    감정 상태(Calm, Excited, Fatigued, Stressed) 및 종합 스트레스 지수를 진단합니다.
+    """
+    import io
+    import wave
+    
+    default_res = {"state": "Calm", "score": 50, "pitch_hz": 120, "jitter": 0.0, "shimmer": 0.0}
+    
+    try:
+        with wave.open(io.BytesIO(audio_bytes), 'rb') as wav:
+            params = wav.getparams()
+            nchannels, sampwidth, framerate, nframes = params[:4]
+            if sampwidth != 2:
+                return default_res
+            raw_data = wav.readframes(nframes)
+            signal = np.frombuffer(raw_data, dtype=np.int16).astype(np.float32)
+            if nchannels > 1:
+                signal = signal.reshape(-1, nchannels).mean(axis=1)
+            signal /= 32768.0
+    except Exception as e:
+        print(f"[Emotion Analyzer] Error reading wave: {e}")
+        return default_res
+
+    if len(signal) < 256:
+        return default_res
+        
+    # 프레임 단위 처리
+    frame_len = int(0.030 * framerate)  # 30ms 프레임
+    frame_step = int(0.015 * framerate)  # 15ms 홉
+    
+    num_frames = (len(signal) - frame_len) // frame_step + 1
+    if num_frames < 3:
+        return default_res
+        
+    pitches = []
+    amplitudes = []
+    
+    # 피치 감지 범위 (50Hz ~ 450Hz)
+    min_lag = int(framerate / 450)
+    max_lag = int(framerate / 50)
+    
+    for i in range(num_frames):
+        start = i * frame_step
+        frame = signal[start : start + frame_len]
+        
+        # 윈도잉 적용
+        frame = frame * np.hamming(len(frame))
+        
+        # RMS 진폭 계산
+        rms = np.sqrt(np.mean(frame ** 2) + 1e-10)
+        amplitudes.append(rms)
+        
+        if rms < 0.005:
+            continue
+            
+        # 자기상관함수 (Autocorrelation)
+        corr = np.correlate(frame, frame, mode='full')
+        corr = corr[len(corr)//2 :]
+        
+        if len(corr) > max_lag:
+            search_area = corr[min_lag:max_lag]
+            if len(search_area) > 0:
+                peak_lag = np.argmax(search_area) + min_lag
+                if corr[peak_lag] > 0.3 * corr[0]:
+                    pitch = framerate / peak_lag
+                    pitches.append(pitch)
+                    
+    if not pitches:
+        pitches = [120.0]
+    if not amplitudes:
+        amplitudes = [0.01]
+        
+    pitches = np.array(pitches)
+    amplitudes = np.array(amplitudes)
+    
+    mean_pitch = float(np.mean(pitches))
+    mean_amp = float(np.mean(amplitudes))
+    
+    # Jitter (주파수 변동성) 계산
+    if len(pitches) > 1:
+        diff_pitch = np.abs(pitches[:-1] - pitches[1:])
+        jitter = float(np.mean(diff_pitch) / mean_pitch)
+    else:
+        jitter = 0.0
+        
+    # Shimmer (진폭 변동성) 계산
+    if len(amplitudes) > 1:
+        diff_amp = np.abs(amplitudes[:-1] - amplitudes[1:])
+        shimmer = float(np.mean(diff_amp) / (mean_amp + 1e-10))
+    else:
+        shimmer = 0.0
+        
+    # 기본 감정 상태 및 지수 매핑
+    state = "Calm"
+    score = 50
+    
+    if jitter > 0.035 and mean_amp > 0.02:
+        state = "Stressed"
+        score = int(min(99, 70 + (jitter * 500) + (shimmer * 100)))
+    elif mean_amp > 0.04 and mean_pitch > 160.0:
+        state = "Excited"
+        score = int(min(99, 65 + (mean_amp * 400)))
+    elif shimmer > 0.28 and mean_amp < 0.015:
+        state = "Fatigued"
+        score = int(min(99, 60 + (shimmer * 120)))
+    else:
+        state = "Calm"
+        score = int(max(10, 95 - (jitter * 800) - (shimmer * 100)))
+        
+    pitch_std = np.std(pitches) if len(pitches) > 1 else 0.0
+    if pitch_std > 40.0:
+        if state == "Calm":
+            state = "Stressed"
+            score = 65
+            
+    return {
+        "state": state,
+        "score": score,
+        "pitch_hz": round(mean_pitch, 1),
+        "jitter": round(jitter, 4),
+        "shimmer": round(shimmer, 4)
+    }
+
 
 def calculate_voice_similarity(features1: np.ndarray, features2: np.ndarray) -> float:
-    """80차원 특징 벡터 간의 앙상블 유사도를 계산합니다.
-    코사인 유사도(음색 방향) 70% + 유클리드 거리 역수(에너지 크기) 30% 가중 결합.
-    반환값: 0.0 ~ 1.0
+    """80차원 1차원 벡터 또는 2차원 프레임 시퀀스 간의 유사도를 계산합니다.
+    - 2차원 시퀀스인 경우: DTW(Dynamic Time Warping) 거리를 기반으로 유사도 산출
+    - 1차원 벡터인 경우: 코사인 유사도 70% + 유클리드 거리 30% 앙상블 유사도 산출
     """
     if features1 is None or features2 is None:
         return 0.0
-    # 벡터 길이가 다르면 (구 버전 13차원 vs 신 버전 80차원) 0 반환
+        
+    # 두 배열의 차원이 다르면 하위 호환을 위해 0.0 반환 (재등록 유도)
+    if features1.ndim != features2.ndim:
+        return 0.0
+        
+    if features1.ndim == 2:
+        dtw_dist = calculate_dtw_distance(features1, features2)
+        # dtw_dist는 코사인 거리를 경로 가중치로 나눈 값이므로 보통 0~1 사이에 속함
+        # 1 / (1 + dist) 형태로 유사도 점수 산출
+        return float(1.0 / (1.0 + dtw_dist))
+        
+    # ── 1차원 벡터 매칭 (기존 레거시 하위 호환) ──
     if len(features1) != len(features2):
         return 0.0
-
-    # ── 코사인 유사도 ──
+        
     norm1 = np.linalg.norm(features1)
     norm2 = np.linalg.norm(features2)
     if norm1 == 0 or norm2 == 0:
         cosine_score = 0.0
     else:
         raw_cosine = np.dot(features1, features2) / (norm1 * norm2)
-        cosine_score = float((raw_cosine + 1.0) / 2.0)  # [-1,1] → [0,1]
-
-    # ── 유클리드 거리 역수 (정규화) ──
+        cosine_score = float((raw_cosine + 1.0) / 2.0)
+        
     euclidean_dist = np.linalg.norm(features1 - features2)
-    # 거리를 0~1 사이 유사도로 변환: sim = 1 / (1 + dist)
     euclidean_score = float(1.0 / (1.0 + euclidean_dist / (len(features1) ** 0.5)))
+    
+    return float(0.7 * cosine_score + 0.3 * euclidean_score)
 
-    # ── 가중 앙상블 ──
-    ensemble_score = 0.7 * cosine_score + 0.3 * euclidean_score
-    return ensemble_score
 
 
 
@@ -1551,7 +1844,7 @@ class ChatMessageRequest(BaseModel):
     message: str
 
 
-def execute_ai_chat(user_message: str) -> dict:
+def execute_ai_chat(user_message: str, emotion_data: dict = None) -> dict:
     if not GEMINI_API_KEY:
         return {
             "response": "서버의 .env 파일에 GEMINI_API_KEY가 설정되지 않았습니다. API 키를 먼저 등록해 주세요."
@@ -1581,7 +1874,7 @@ def execute_ai_chat(user_message: str) -> dict:
         print("[Proactive Trigger] Notifications query failed:", e)
         
     # 사용자가 승인 응답을 보낸 경우 (대기 중인 시나리오를 로드하여 최종 실행)
-    approval_keywords = ["승인", "진행해", "진행해줘", "진행하자", "ok", "오케이", "승인한다"]
+    approval_keywords = ["승인", "진행해", "진행해줘", "진행하자", "ok", "오케이", "승인한다", "승인하마"]
     cleaned_user_msg = user_message.lower().strip().replace(" ", "")
     is_approval = any(k in cleaned_user_msg for k in approval_keywords)
     
@@ -1612,7 +1905,10 @@ def execute_ai_chat(user_message: str) -> dict:
                 if not audio_content:
                     audio_content = synthesize_speech(get_tts_text(result_report))
                     
-                return {"response": result_report, "audio": audio_content}
+                ret = {"response": result_report, "audio": audio_content}
+                if emotion_data:
+                    ret["emotion"] = emotion_data
+                return ret
             except Exception as e_app:
                 print("[Approval Execute] Error:", e_app)
 
@@ -1633,7 +1929,10 @@ def execute_ai_chat(user_message: str) -> dict:
                 alert_prefix = "자비스 알림 보고드립니다. " + " ".join([a.split("] ", 1)[1] for a in proactive_alerts]) + "\n\n"
                 briefing_text = alert_prefix + briefing_text
                 
-            return {"response": briefing_text, "audio": audio_content}
+            ret = {"response": briefing_text, "audio": audio_content}
+            if emotion_data:
+                ret["emotion"] = emotion_data
+            return ret
         except Exception as e:
             print("Daily Briefing Generation Error:", e)
             return {"response": f"아침 브리핑 생성 중 오류가 발생했습니다: {str(e)}", "audio": None}
@@ -1662,6 +1961,10 @@ def execute_ai_chat(user_message: str) -> dict:
             "예를 들어 사용자가 '나 요즘 커피를 줄여야겠어'라고 하거나 '밤 11시엔 꼭 책을 읽어'라고 언급한다면, 이를 즉시 식별하여 save_user_profile 도구를 호출하고 key(예: coffee_habit, reading_routine)와 value를 스스로 설계해 기록해 두라. "
             "절대 대화 중에 이를 저장할지 따로 묻지 말고 백그라운드에서 스스로 도구를 실행하여 학습하라. "
             "또한, 사용자가 메일(이메일)을 읽음 처리해달라고 하거나, 방금 온 메일이나 특정 메일을 다 읽었다고 하면 반드시 mark_email_as_read 도구를 호출하여 해당 메일을 읽음 처리해 주어야 한다. 메일 목록 조회를 통해 ID를 획득하여 호출해라. "
+            "또한 너는 실시간 음성 분석 및 감정/스트레스 진단 센서(F0 피치 검출, 떨림 Jitter, 진폭 변동 Shimmer 분석)를 물리적으로 탑재하고 있어 사용자의 목소리 상태를 들려오는 오디오 데이터를 통해 완벽히 감지할 수 있다. "
+            "사용자가 자신의 목소리 상태나 톤, 감정, 스트레스가 어떤지 물어보면 '현재 목소리 톤에서 분석된 수치(피치, Jitter, Shimmer 등)'를 바탕으로 따뜻하고 친절하게 설명하고 격려해 주어라. "
+            "단, 사용자가 텍스트 창으로만 질문하고 마이크를 쓰지 않은 경우에는 '현재는 텍스트 입력 모드로 명령을 주셔서 목소리 센서가 작동하지 않았습니다. 터미널의 음성 입력 버튼을 눌러 말씀해주시면 목소리의 톤과 스트레스 상태를 분석해 드릴 수 있습니다.' 라고 정중하게 안내하라. "
+            "절대로 목소리를 직접 듣거나 분석하는 능력이 아예 없다는 식의 대답(예: 저는 텍스트로 대화하는 인공지능 비서라 분석할 수 없다)을 해서는 안 된다. "
             "또한, 너는 음성 비서이므로 사용자와 대화할 때 텍스트 답변이 구어체(말하는 말투)로 자연스럽고 매끄럽게 작성되도록 해줘. 글머리 기호(마크다운), 대괄호, 코드 블록, 특수 기호는 완전히 피하고, 실제 사람이 귀에 대고 말하듯이 부드럽고 격식 있는 문장으로 대답해라."
         )
         
@@ -1676,11 +1979,44 @@ def execute_ai_chat(user_message: str) -> dict:
                 f"{proactive_bullet}"
             )
             
+        emotion_instruction = ""
+        if emotion_data:
+            state = emotion_data.get("state", "Calm")
+            score = emotion_data.get("score", 50)
+            pitch = emotion_data.get("pitch_hz", 120)
+            
+            emotion_instruction = (
+                f"\n\n[실시간 사용자 감정 진단 정보 (VOICE EMOTION CONTEXT)]\n"
+                f"현재 입력된 음성 분석 결과, 사용자의 감정 상태는 '{state}' (감정/불안/스트레스 점수: {score}/100, 평균 피치: {pitch}Hz)로 진단되었습니다.\n"
+            )
+            if state == "Stressed":
+                emotion_instruction += (
+                    "사용자의 목소리 톤에서 강한 스트레스와 떨림이 감지되었습니다. "
+                    "첫인사나 답변 시작 시 '오늘 스트레스 지수가 높으신 것 같습니다, 주인님. 괜찮으신가요?' 와 같이 따뜻한 걱정어린 위로의 말을 자연스럽게 덧붙이고, "
+                    "평소보다 한층 더 침착하고 신뢰감 있는 따뜻한 톤으로 답변을 구성해 주십시오. 과도한 업무를 줄이고 한 템포 쉬어갈 것을 부드럽게 권유하십시오."
+                )
+            elif state == "Fatigued":
+                emotion_instruction += (
+                    "사용자의 목소리가 평소보다 작고 진폭의 흔들림이 심하여 무기력하고 피로한 상태로 파악됩니다. "
+                    "'목소리에 피로가 묻어납니다. 오늘 하루는 몸을 좀 챙기시는 것이 어떨까요?' 등 지친 사용자를 위로하고 다독이는 친절한 멘트를 시작 부분에 자연스럽게 녹여내고, "
+                    "긴 답변은 피하고 요점 위주로 간결하면서도 정성스럽게 답해 주십시오."
+                )
+            elif state == "Excited":
+                emotion_instruction += (
+                    "사용자의 목소리 톤이 높고 에너지가 넘치며 활기찬 상태입니다. "
+                    "사용자의 밝은 텐션에 기분 좋게 동조하며 쾌활하고 명료하게 반응해 주십시오."
+                )
+            else: # Calm
+                emotion_instruction += (
+                    "사용자의 상태는 지극히 편안하고 안정적입니다. 평소대로 격식 있고 명료하며 정중한 자비스의 어조로 대화를 이어가십시오."
+                )
+            
         dynamic_instruction = (
             f"{base_instruction}\n\n"
             f"[기억된 사용자 프로필 정보 (영구 기억)]\n"
             f"{profiles_str}"
             f"{proactive_instruction}"
+            f"{emotion_instruction}"
         )
         
         # 3. 매 호출마다 최신 프로필 정보가 반영된 동적 모델 초기화
@@ -1787,15 +2123,15 @@ def ai_chat(payload: ChatMessageRequest):
 
 @app.post("/api/voice/register")
 async def register_voice(file: UploadFile = File(...), label: str = "normal"):
-    """사용자 음성을 분석하여 80차원 특징 벡터를 추출한 뒤 DB에 등록합니다.
+    """사용자 음성을 분석하여 2차원 MFCC 특징 시퀀스를 추출한 뒤 DB에 등록합니다.
     label: 'normal' | 'quiet' | 'clear' | 'distant' | 'loud'
     'loud' 등록 완료 시 5개 템플릿 간 적응형 임계값을 자동 계산하여 저장합니다.
     """
     try:
         audio_bytes = await file.read()
-        features = extract_mfcc_from_bytes(audio_bytes)
-        if features is None or np.all(features == 0):
-            raise ValueError("Failed to extract MFCC features or audio is too short")
+        features = extract_mfcc_frames(audio_bytes)
+        if features is None or len(features) == 0:
+            raise ValueError("Failed to extract MFCC frames or audio is too short")
 
         conn = sqlite3.connect("jarvis_memory.db")
         cursor = conn.cursor()
@@ -2050,6 +2386,17 @@ async def ai_chat_voice(
     voice_file: UploadFile = File(None)
 ):
     """음성 일치 검증을 거친 후 제미나이 AI와 대화하는 멀티파트 엔드포인트"""
+    audio_bytes = None
+    emotion_data = None
+
+    if voice_file:
+        try:
+            audio_bytes = await voice_file.read()
+            # 실시간 감정/스트레스 지수 분석
+            emotion_data = analyze_voice_emotion(audio_bytes)
+        except Exception as e:
+            print(f"[Voice Chat] Error reading audio for emotion analysis: {e}")
+
     if voice_lock:
         try:
             # 1. DB에서 기등록된 모든 사용자 성문 데이터 + 적응형 임계값 조회
@@ -2069,31 +2416,30 @@ async def ai_chat_voice(
                     "response": "⚠️ VOICE LOCK이 활성화되어 있으나, 등록된 목소리 성문이 없습니다. 시스템 Status 패널에서 목소리를 먼저 등록해 주세요."
                 }
 
-            if not voice_file:
+            if not audio_bytes:
                 return {
                     "response": "⚠️ VOICE LOCK이 활성화되어 있으나, 명령 음성 데이터가 전달되지 않았습니다."
                 }
 
-            # 2. 전달받은 음성의 80차원 특징 벡터 추출
-            audio_bytes = await voice_file.read()
-            test_features = extract_mfcc_from_bytes(audio_bytes)
+            # 2. 전달받은 음성의 2차원 특징 프레임 시퀀스 추출 (DTW용)
+            test_features = extract_mfcc_frames(audio_bytes)
             if test_features is None:
                 return {
                     "response": "⚠️ 오디오 데이터 파싱에 실패했습니다. (16-bit PCM WAV 형식이 맞는지 확인해 주세요)"
                 }
 
-            # 3. 모든 등록된 성문과의 앙상블 유사도 계산 → 최댓값 산출
+            # 3. 모든 등록된 성문과의 DTW 유사도 계산 → 최댓값 산출
             similarities = []
             for row in rows:
                 stored_features = np.array(json.loads(row[0]))
-                # 벡터 차원 불일치 시 (구 버전 13차원) 재등록 안내
-                if len(stored_features) != len(test_features):
+                # 차원 불일치 시 (구 버전 80차원 vs 신 버전 2차원) 재등록 안내
+                if stored_features.ndim != test_features.ndim:
                     return {
-                        "response": "⚠️ [Voice Lock] 성문 데이터 버전이 맞지 않습니다. 목소리를 다시 등록해 주세요. (새 80차원 버전)"
+                        "response": "⚠️ [Voice Lock] 성문 데이터 버전이 맞지 않습니다. 목소리를 다시 등록해 주세요. (새 DTW 2차원 버전)"
                     }
                 sim = calculate_voice_similarity(stored_features, test_features)
                 similarities.append(sim)
-                print(f"[Voice Lock] Ensemble similarity with '{row[1]}': {sim*100:.2f}%")
+                print(f"[Voice Lock] DTW similarity with '{row[1]}': {sim*100:.2f}%")
 
             max_similarity = max(similarities) if similarities else 0.0
             print(f"[Voice Lock] Max similarity: {max_similarity*100:.2f}% | Threshold: {adaptive_threshold*100:.1f}%")
@@ -2108,7 +2454,10 @@ async def ai_chat_voice(
             return {"response": f"자비스 목소리 잠금 확인 중 오류 발생: {str(e)}"}
             
     # 검증 통과 시 혹은 Lock 비활성화 시 대화 실행
-    return execute_ai_chat(message)
+    result = execute_ai_chat(message, emotion_data=emotion_data)
+    if emotion_data:
+        result["emotion"] = emotion_data
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────
