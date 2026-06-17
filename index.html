@@ -1064,6 +1064,7 @@
                             <span class="slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.1); border: 1px solid var(--border-color); transition: .4s; border-radius: 20px;"></span>
                         </label>
                     </div>
+                    <button id="pwaInstallBtn" style="display: none; background: transparent; border: 1px solid var(--primary-neon); color: var(--primary-neon); padding: 4px 10px; border-radius: 4px; font-family: 'Orbitron', sans-serif; font-size: 0.65rem; cursor: pointer; letter-spacing: 1px; box-shadow: 0 0 5px rgba(0, 242, 254, 0.2); text-shadow: 0 0 4px var(--primary-neon); transition: all 0.3s ease; margin-left: 8px; align-self: center;" onclick="triggerPWAInstall()">INSTALL APP</button>
                 </div>
             </div>
             
@@ -2194,6 +2195,7 @@
         const continuousSessionDuration = 8000; // 연속 대화 대기 시간 (8초)
         let shouldStartSTTAfterWakeWord = false; // Wake Word 인식 후 안전한 STT 전환용 예약 플래그
         let isUserSpeaking = false; // 사용자가 현재 STT 마이크에 대고 말하는 중인지 여부
+        let currentActiveAudio = null; // 현재 재생 중인 HTML5 Audio 객체 추적용 변수
 
         // Web Audio API를 사용한 자비스 효과음 합성 함수
         function synthesizeJarvisSound(type) {
@@ -2378,8 +2380,7 @@
                     console.log("Wake word detected!");
                     playJarvisSound('wake_word');
                     
-                    // 즉시 음성 인식 활성화를 마킹하고, 안전 전이 예약 플래그 설정
-                    isSpeechRecognizing = true;
+                    // 안전 전이 예약 플래그만 설정 (STT 실제 구동 시 onstart에서 마킹)
                     shouldStartSTTAfterWakeWord = true;
                     stopWakeWordListening(); // onend를 비동기 호출하게 됨
                 }
@@ -2494,6 +2495,7 @@
 
         // Gemini AI 채팅 전송 함수
         async function sendChatMessage() {
+            stopAllJarvisVoices(); // 이전 활성 음성 즉각 정지 및 파괴
             const input = document.getElementById('terminalInput');
             const chatBox = document.getElementById('chat-box');
             if (!input || !chatBox) return;
@@ -2624,6 +2626,7 @@
         let recognition;
         let isSpeechRecognizing = false; // 중복 실행 방지를 위한 플래그 추가
         function startSpeechRecognition() {
+            stopAllJarvisVoices(); // 마이크 활성화 시 이전 자비스 음성 즉각 끊기
             const voiceBtn = document.getElementById('voiceBtn');
             const input = document.getElementById('terminalInput');
             if (!input || !voiceBtn) return;
@@ -2663,6 +2666,7 @@
                     await activeWavRecorder.start();
                 } catch (err) {
                     console.error("Failed to start voice recorder:", err);
+                    activeWavRecorder = null; // 실패 시 안전하게 null 리셋
                 }
             };
 
@@ -2764,8 +2768,28 @@
             recognition.start();
         }
 
+        // 현재 출력 중인 모든 종류의 음성(SpeechSynthesis 및 HTML5 Audio 객체)을 강제 중단하는 함수
+        function stopAllJarvisVoices() {
+            if (window.speechSynthesis) {
+                window.speechSynthesis.cancel();
+            }
+            if (currentActiveAudio) {
+                try {
+                    currentActiveAudio.onended = null;
+                    currentActiveAudio.onerror = null;
+                    currentActiveAudio.pause();
+                    currentActiveAudio.src = "";
+                } catch (e) {
+                    console.error("Error stopping active audio:", e);
+                }
+                currentActiveAudio = null;
+            }
+        }
+
         // Web Speech API TTS (음성 합성) 구현
         function speak(text) {
+            stopAllJarvisVoices();
+
             if (!window.speechSynthesis) {
                 console.warn("이 브라우저는 음성 합성을 지원하지 않습니다.");
                 onJarvisSpeakingFinished();
@@ -2773,7 +2797,6 @@
             }
 
             jarvisSoundscape.duck();
-            window.speechSynthesis.cancel();
 
             const cleanText = text.replace(/[*_`#~\[\]\(\)]/g, ' ');
 
@@ -2784,6 +2807,10 @@
                 onJarvisSpeakingFinished();
             };
             utterance.onerror = (event) => {
+                if (event.error === 'interrupted') {
+                    console.log("[TTS] Speech interrupted and suppressed.");
+                    return;
+                }
                 console.error("SpeechSynthesis error:", event);
                 onJarvisSpeakingFinished();
             };
@@ -2826,19 +2853,33 @@
         // 구글 클라우드 TTS 오디오 재생 함수 (오토플레이 오류 시 브라우저 내장 TTS로 Fallback)
         function playBase64Audio(base64String, fallbackText) {
             try {
+                stopAllJarvisVoices();
                 jarvisSoundscape.duck();
-                if (window.speechSynthesis) {
-                    window.speechSynthesis.cancel();
-                }
+
                 const audioUrl = "data:audio/mp3;base64," + base64String;
                 const audio = new Audio(audioUrl);
+                currentActiveAudio = audio;
                 
                 audio.onended = () => {
+                    if (currentActiveAudio === audio) {
+                        currentActiveAudio = null;
+                    }
                     onJarvisSpeakingFinished();
+                };
+
+                audio.onerror = (e) => {
+                    console.error("[Audio] playBase64Audio error event:", e);
+                    if (currentActiveAudio === audio) {
+                        currentActiveAudio = null;
+                    }
+                    speak(fallbackText);
                 };
                 
                 audio.play().catch(e => {
                     console.warn("Autoplay blocked or playback failed, falling back to browser TTS:", e);
+                    if (currentActiveAudio === audio) {
+                        currentActiveAudio = null;
+                    }
                     speak(fallbackText);
                 });
             } catch (e) {
@@ -2901,6 +2942,14 @@
                     .catch(err => console.error('[Service Worker] Registration failed:', err));
             }
 
+            // iOS Safari PWA 설치 버튼 노출 강제화
+            if (isIOS() && !checkStandalone()) {
+                const installBtn = document.getElementById('pwaInstallBtn');
+                if (installBtn) {
+                    installBtn.style.display = 'inline-block';
+                }
+            }
+
             fetchTodayEvents();
             fetchUnreadEmails();
             checkVoiceStatus();
@@ -2941,7 +2990,95 @@
                 });
             }
         });
+
+        // PWA 설치 모션/이벤트 제어 전역 로직
+        let deferredPrompt = null;
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            const installBtn = document.getElementById('pwaInstallBtn');
+            if (installBtn && !checkStandalone()) {
+                installBtn.style.display = 'inline-block';
+            }
+        });
+
+        window.addEventListener('appinstalled', (evt) => {
+            console.log('[PWA] Jarvis OS installed successfully!');
+            const installBtn = document.getElementById('pwaInstallBtn');
+            if (installBtn) {
+                installBtn.style.display = 'none';
+            }
+            deferredPrompt = null;
+        });
+
+        function isIOS() {
+            return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        }
+
+        function checkStandalone() {
+            return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+        }
+
+        function triggerPWAInstall() {
+            const pwaModal = document.getElementById('pwaModal');
+            const pwaIOSGuide = document.getElementById('pwaIOSGuide');
+            const pwaPromptTrigger = document.getElementById('pwaPromptTrigger');
+            
+            if (!pwaModal) return;
+            pwaModal.style.display = 'flex';
+            
+            if (isIOS()) {
+                pwaIOSGuide.style.display = 'block';
+                pwaPromptTrigger.style.display = 'none';
+            } else if (deferredPrompt) {
+                pwaIOSGuide.style.display = 'none';
+                pwaPromptTrigger.style.display = 'block';
+            } else {
+                pwaIOSGuide.innerHTML = "<strong>브라우저 메뉴를 통해 설치:</strong><br>주소창 오른쪽의 설치 아이콘 [⊕]을 누르거나, 브라우저 우측 상단 메뉴(점 3개)에서 <strong>'Jarvis OS 설치'</strong>를 선택해 주세요.";
+                pwaIOSGuide.style.display = 'block';
+                pwaPromptTrigger.style.display = 'none';
+            }
+        }
+
+        function closePWAModal() {
+            const pwaModal = document.getElementById('pwaModal');
+            if (pwaModal) pwaModal.style.display = 'none';
+        }
+
+        async function executeDeferredPrompt() {
+            closePWAModal();
+            if (!deferredPrompt) return;
+            
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            console.log(`[PWA] Install choice outcome: ${outcome}`);
+            
+            if (outcome === 'accepted') {
+                const installBtn = document.getElementById('pwaInstallBtn');
+                if (installBtn) installBtn.style.display = 'none';
+            }
+            deferredPrompt = null;
+        }
     </script>
+
+    <!-- PWA Install Guide Modal -->
+    <div id="pwaModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 9999; justify-content: center; align-items: center; font-family: 'Inter', sans-serif;">
+        <div style="background: #0f172a; border: 2px solid var(--primary-neon); border-radius: 16px; padding: 24px; max-width: 400px; width: 90%; text-align: center; box-shadow: 0 0 25px rgba(0, 242, 254, 0.4); color: #fff; position: relative;">
+            <button onclick="closePWAModal()" style="position: absolute; top: 12px; right: 12px; background: transparent; border: none; color: #64748b; font-size: 1.25rem; cursor: pointer;">✕</button>
+            <div style="font-size: 3rem; margin-bottom: 16px; color: var(--primary-neon);">📱</div>
+            <h3 style="font-family: 'Orbitron', sans-serif; letter-spacing: 1.5px; margin-bottom: 12px; color: var(--primary-neon);">INSTALL JARVIS OS</h3>
+            <p style="font-size: 0.875rem; line-height: 1.6; color: #94a3b8; margin-bottom: 20px;">
+                바탕화면에 앱(어플) 형태로 추가하여 전체 화면으로 즐기실 수 있습니다.
+            </p>
+            <div id="pwaIOSGuide" style="display: none; background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; font-size: 0.8rem; text-align: left; line-height: 1.5; color: #cbd5e1; border: 1px dashed rgba(0, 242, 254, 0.3);">
+                <strong>Safari 브라우저 설치 방법:</strong><br>
+                1. 하단 툴바의 <strong>[공유]</strong> 버튼 (네모에 화살표 위로 향한 아이콘)을 누릅니다.<br>
+                2. 메뉴를 아래로 스크롤하여 <strong>[홈 화면에 추가]</strong>를 선택합니다.
+            </div>
+            <button id="pwaPromptTrigger" style="display: none; background: linear-gradient(135deg, #00f2fe, #4facfe); border: none; color: #000; font-weight: bold; width: 100%; padding: 12px; border-radius: 8px; cursor: pointer; font-size: 0.9rem; letter-spacing: 1px; transition: transform 0.2s;" onclick="executeDeferredPrompt()">지금 설치하기</button>
+        </div>
+    </div>
     {% endif %}
 </body>
 </html>
