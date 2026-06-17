@@ -1,0 +1,17 @@
+{
+  "short_name": "Jarvis OS",
+  "name": "Jarvis Command Center OS",
+  "icons": [
+    {
+      "src": "/static/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0a0e17",
+  "theme_color": "#00f2fe",
+  "display": "fullscreen",
+  "orientation": "landscape"
+}

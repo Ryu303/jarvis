@@ -1,0 +1,2 @@
+Place sound files (wake_word.mp3, processing.mp3, error.mp3) here to play local sound effects.
+If they are missing, JARVIS will automatically synthesize Web Audio API alerts as a robust fallback.

@@ -412,6 +412,33 @@
             text-overflow: ellipsis;
         }
 
+        .btn-mail-read {
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid rgba(245, 158, 11, 0.35);
+            color: #fbbf24;
+            padding: 4px 8px;
+            font-size: 0.75rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Orbitron', sans-serif;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-weight: bold;
+        }
+
+        .btn-mail-read:hover {
+            background: rgba(245, 158, 11, 0.3);
+            border-color: #fbbf24;
+            box-shadow: 0 0 10px rgba(245, 158, 11, 0.4);
+            transform: scale(1.05);
+        }
+
+        .btn-mail-read:active {
+            transform: scale(0.95);
+        }
+
         /* System Status Widget Styles (Right Panel) */
         .system-status {
             display: flex;
@@ -738,7 +765,70 @@
             0% { box-shadow: 0 0 10px rgba(245, 158, 11, 0.25); }
             100% { box-shadow: 0 0 25px rgba(245, 158, 11, 0.65); }
         }
+
+        /* IoT Device Control Styles & activePulse */
+        .btn-device-toggle {
+            padding: 4px 10px;
+            font-size: 0.75rem;
+            background: rgba(0, 242, 254, 0.1);
+            border: 1px solid rgba(0, 242, 254, 0.3);
+            color: var(--primary-neon);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'Orbitron', sans-serif;
+            font-weight: bold;
+        }
+        .btn-device-toggle:hover {
+            background: rgba(0, 242, 254, 0.25);
+            box-shadow: 0 0 8px rgba(0, 242, 254, 0.4);
+        }
+        .status-active {
+            border-color: var(--primary-neon) !important;
+            background: rgba(0, 242, 254, 0.08) !important;
+            box-shadow: 0 0 15px rgba(0, 242, 254, 0.45) !important;
+            animation: devicePulse 1.5s infinite alternate ease-in-out;
+        }
+        .pulse {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            border-radius: inherit;
+            border: 2px solid var(--primary-neon); /* Increased thickness */
+            box-shadow: 0 0 15px var(--primary-neon); /* Added neon glow to ripple */
+            opacity: 0;
+            pointer-events: none;
+            animation: ripple 2s infinite cubic-bezier(0.25, 0.8, 0.25, 1);
+            z-index: 0;
+        }
+        @keyframes devicePulse {
+            0% { box-shadow: 0 0 10px rgba(0, 242, 254, 0.2), inset 0 0 5px rgba(0, 242, 254, 0.1); }
+            100% { box-shadow: 0 0 25px rgba(0, 242, 254, 0.65), inset 0 0 12px rgba(0, 242, 254, 0.3); }
+        }
+        @keyframes ripple {
+            0% { 
+                transform: scale(1); 
+                opacity: 0.75; 
+            }
+            50% {
+                opacity: 0.4;
+            }
+            100% { 
+                transform: scale(1.06, 1.2); /* Expand wider vertically and horizontally */
+                opacity: 0; 
+            }
+        }
     </style>
+    <!-- PWA configuration -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Jarvis OS">
+    <link rel="apple-touch-icon" href="/static/icon-512.png">
+    <meta name="theme-color" content="#00f2fe">
 </head>
 <body>
 
@@ -849,6 +939,22 @@
                         </div>
                     </div>
                     
+                    <!-- IoT 스마트 기기 제어 (Pulse Effect 적용) -->
+                    <div class="status-item device-item" id="device-switchbot" style="position: relative;">
+                        <span class="status-label">스위치봇 (SwitchBot)</span>
+                        <div style="display: flex; align-items: center; gap: 10px; z-index: 1;">
+                            <span class="status-val" id="switchbotStateVal" style="color: var(--text-muted);">OFF</span>
+                            <button onclick="toggleDevice('switchbot')" class="btn-device-toggle" id="btnToggleSwitchbot">토글</button>
+                        </div>
+                    </div>
+                    <div class="status-item device-item" id="device-smartplug" style="position: relative;">
+                        <span class="status-label">스마트 플러그 (Smart Plug)</span>
+                        <div style="display: flex; align-items: center; gap: 10px; z-index: 1;">
+                            <span class="status-val" id="smartplugStateVal" style="color: var(--text-muted);">OFF</span>
+                            <button onclick="toggleDevice('smartplug')" class="btn-device-toggle" id="btnToggleSmartplug">토글</button>
+                        </div>
+                    </div>
+                    
                     <div class="system-controls">
                         <a href="/login" class="btn-action">계정 갱신 / 변경</a>
                         <button onclick="refreshCalendar()" class="btn-action" style="background: rgba(0, 242, 254, 0.05); color: var(--primary-neon); border-color: rgba(0, 242, 254, 0.3);">일정 새로고침</button>
@@ -856,9 +962,78 @@
                 </div>
             </div>
         </div>
+        </div>
+
+        <!-- 출장 상담 노트 위젯 -->
+        <div class="terminal-widget" id="consultationWidget" style="margin-top: 24px; background: rgba(5, 5, 20, 0.85); border-color: rgba(139, 92, 246, 0.3);">
+            <style>
+                #consultationWidget::before { background: linear-gradient(90deg, #8b5cf6, transparent); }
+                .consult-item {
+                    display: flex; align-items: flex-start; gap: 14px;
+                    padding: 14px 16px; border-radius: 10px;
+                    background: rgba(139, 92, 246, 0.06);
+                    border: 1px solid rgba(139, 92, 246, 0.15);
+                    transition: all 0.3s ease;
+                }
+                .consult-item:hover { border-color: rgba(139, 92, 246, 0.4); background: rgba(139, 92, 246, 0.1); }
+                .consult-num {
+                    flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%;
+                    background: rgba(139, 92, 246, 0.2); border: 1px solid rgba(139, 92, 246, 0.4);
+                    display: flex; align-items: center; justify-content: center;
+                    font-family: 'Orbitron', sans-serif; font-size: 0.7rem; color: #a78bfa; font-weight: 700;
+                }
+                .consult-name { font-size: 1rem; font-weight: 600; color: #fff; }
+                .consult-time { font-size: 0.78rem; color: var(--text-muted); margin-top: 2px; }
+                .consult-note { font-size: 0.82rem; color: rgba(167, 139, 250, 0.8); margin-top: 6px; white-space: pre-line; }
+                .consult-link { font-size: 0.78rem; color: #8b5cf6; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; }
+                .consult-link:hover { color: #a78bfa; }
+                .btn-consult-save {
+                    flex: 1; padding: 11px; background: rgba(139, 92, 246, 0.15);
+                    border: 1px solid rgba(139, 92, 246, 0.35); color: #a78bfa;
+                    font-family: 'Orbitron', sans-serif; font-weight: bold; font-size: 0.8rem;
+                    border-radius: 10px; cursor: pointer; transition: all 0.3s;
+                }
+                .btn-consult-save:hover { background: rgba(139, 92, 246, 0.3); box-shadow: 0 0 12px rgba(139, 92, 246, 0.3); }
+            </style>
+            <div class="widget-title" style="margin-bottom: 16px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <svg viewBox="0 0 24 24" style="fill: #a78bfa; filter: drop-shadow(0 0 4px #8b5cf6); width: 20px; height: 20px;">
+                        <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11zm-5-4H9v-2h4v2zm2-4H9v-2h6v2z"/>
+                    </svg>
+                    <span>출장 상담 일지 (CONSULTATION NOTES)</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span id="consultDocsLink" style="display: none;">
+                        <a id="consultDocsAnchor" href="#" target="_blank" style="font-size: 0.78rem; color: #8b5cf6; display: inline-flex; align-items: center; gap: 4px;">
+                            <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: #8b5cf6;"><path d="M19 19H5V5h7V3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>
+                            Google Docs 열기
+                        </a>
+                    </span>
+                    <button onclick="loadTodayConsultations()" style="font-size: 0.7rem; padding: 4px 10px; background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 6px; color: #a78bfa; cursor: pointer; font-family: 'Orbitron', sans-serif;">새로고침</button>
+                </div>
+            </div>
+
+            <!-- 빠른 저장 입력창 -->
+            <div style="display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap;">
+                <input type="text" id="consultClientName" class="terminal-input" placeholder="내담자 이름" style="flex: 0 0 160px; min-width: 120px; border-color: rgba(139, 92, 246, 0.3);">
+                <input type="text" id="consultNote" class="terminal-input" placeholder="상담 내용 요약 (또는 자비스 터미널에서 직접 말하기)" style="flex: 1; min-width: 200px; border-color: rgba(139, 92, 246, 0.3);">
+                <button onclick="saveConsultationNote()" class="btn-consult-save" id="btnConsultSave">📋 저장</button>
+            </div>
+
+            <!-- 오늘 상담 목록 -->
+            <div id="consultationList" style="display: flex; flex-direction: column; gap: 12px; max-height: 280px; overflow-y: auto;">
+                <div class="loading-state" style="padding: 30px 0;">
+                    <svg viewBox="0 0 24 24" style="fill: rgba(139, 92, 246, 0.4); width: 36px; height: 36px;">
+                        <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6z"/>
+                    </svg>
+                    <p style="font-size: 0.9rem;">오늘의 상담 기록을 불러오는 중...</p>
+                </div>
+            </div>
+        </div>
 
         <!-- JARVIS AI Terminal Widget -->
-        <div class="terminal-widget">
+
+        <div class="terminal-widget glow-idle">
             <div class="widget-title" style="margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="display: flex; align-items: center; gap: 8px;">
                     자비스 AI 터미널 (JARVIS AI TERMINAL)
@@ -879,6 +1054,13 @@
                         <span>VOICE LOCK</span>
                         <label class="switch" style="position: relative; display: inline-block; width: 34px; height: 20px;">
                             <input type="checkbox" id="voiceLockToggle" onchange="toggleVoiceLock()" style="opacity: 0; width: 0; height: 0;">
+                            <span class="slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.1); border: 1px solid var(--border-color); transition: .4s; border-radius: 20px;"></span>
+                        </label>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px; font-family: 'Orbitron', sans-serif; font-size: 0.75rem; letter-spacing: 1px; color: var(--text-muted);">
+                        <span>SUIT HUM</span>
+                        <label class="switch" style="position: relative; display: inline-block; width: 34px; height: 20px;">
+                            <input type="checkbox" id="ambientHumToggle" onchange="toggleAmbientHum()" style="opacity: 0; width: 0; height: 0;" checked>
                             <span class="slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.1); border: 1px solid var(--border-color); transition: .4s; border-radius: 20px;"></span>
                         </label>
                     </div>
@@ -987,11 +1169,319 @@
             }
         }
 
+        class JarvisSoundscape {
+            constructor() {
+                this.audioCtx = null;
+                this.masterGain = null;
+                this.osc1 = null;
+                this.osc2 = null;
+                this.noiseNode = null;
+                this.lfo = null;
+                this.isEnabled = false;
+                this.isMutedForMic = false;
+                this.normalVolume = 0.18; // Increased from 0.06 to be audible on standard speakers
+                this.duckedVolume = 0.035; // Increased from 0.012 for ducking visibility
+            }
+
+            init() {
+                if (this.audioCtx) return;
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                this.audioCtx = new AudioContextClass();
+                
+                this.masterGain = this.audioCtx.createGain();
+                this.masterGain.gain.setValueAtTime(0, this.audioCtx.currentTime);
+                this.masterGain.connect(this.audioCtx.destination);
+                
+                // 1. Base Power Hum (Oscillator 1 - Sine at 90Hz, raised from 55Hz)
+                this.osc1 = this.audioCtx.createOscillator();
+                this.osc1.type = 'sine';
+                this.osc1.frequency.setValueAtTime(90, this.audioCtx.currentTime);
+                
+                // 2. Chorus Detuned Hum (Oscillator 2 - Triangle at 180.5Hz, raised from 110.5Hz)
+                this.osc2 = this.audioCtx.createOscillator();
+                this.osc2.type = 'triangle';
+                this.osc2.frequency.setValueAtTime(180.5, this.audioCtx.currentTime);
+                
+                const lowpass = this.audioCtx.createBiquadFilter();
+                lowpass.type = 'lowpass';
+                lowpass.frequency.setValueAtTime(200, this.audioCtx.currentTime); // Raised from 120Hz to allow 180.5Hz harmonics
+                lowpass.Q.setValueAtTime(1.0, this.audioCtx.currentTime);
+                
+                this.osc1.connect(lowpass);
+                this.osc2.connect(lowpass);
+                
+                // 3. Pink Noise for ventilator air flow simulation
+                const bufferSize = 2 * this.audioCtx.sampleRate;
+                const noiseBuffer = this.audioCtx.createBuffer(1, bufferSize, this.audioCtx.sampleRate);
+                const output = noiseBuffer.getChannelData(0);
+                let b0, b1, b2, b3, b4, b5, b6;
+                b0 = b1 = b2 = b3 = b4 = b5 = b6 = 0.0;
+                for (let i = 0; i < bufferSize; i++) {
+                    const white = Math.random() * 2 - 1;
+                    b0 = 0.99886 * b0 + white * 0.0555179;
+                    b1 = 0.99332 * b1 + white * 0.0750759;
+                    b2 = 0.96900 * b2 + white * 0.1538520;
+                    b3 = 0.86650 * b3 + white * 0.3104856;
+                    b4 = 0.55000 * b4 + white * 0.5329522;
+                    b5 = -0.7616 * b5 - white * 0.0168980;
+                    output[i] = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
+                    output[i] *= 0.11;
+                    b6 = white * 0.115926;
+                }
+                
+                this.noiseNode = this.audioCtx.createBufferSource();
+                this.noiseNode.buffer = noiseBuffer;
+                this.noiseNode.loop = true;
+                
+                const bandpass = this.audioCtx.createBiquadFilter();
+                bandpass.type = 'bandpass';
+                bandpass.frequency.setValueAtTime(260, this.audioCtx.currentTime); // Adjusted to 260Hz for cooling sweep
+                bandpass.Q.setValueAtTime(2.0, this.audioCtx.currentTime);
+                
+                this.noiseNode.connect(bandpass);
+                
+                // 4. LFO to slowly modulate noise filter cutoff (breathing effect)
+                this.lfo = this.audioCtx.createOscillator();
+                this.lfo.type = 'sine';
+                this.lfo.frequency.setValueAtTime(0.1, this.audioCtx.currentTime);
+                
+                const lfoGain = this.audioCtx.createGain();
+                lfoGain.gain.setValueAtTime(40, this.audioCtx.currentTime);
+                
+                this.lfo.connect(lfoGain);
+                lfoGain.connect(bandpass.frequency);
+                
+                const oscGain = this.audioCtx.createGain();
+                oscGain.gain.setValueAtTime(0.7, this.audioCtx.currentTime);
+                lowpass.connect(oscGain);
+                oscGain.connect(this.masterGain);
+                
+                const noiseGain = this.audioCtx.createGain();
+                noiseGain.gain.setValueAtTime(0.3, this.audioCtx.currentTime);
+                bandpass.connect(noiseGain);
+                noiseGain.connect(this.masterGain);
+                
+                this.osc1.start();
+                this.osc2.start();
+                this.noiseNode.start();
+                this.lfo.start();
+            }
+
+            start() {
+                this.isEnabled = true;
+                this.init();
+                if (this.audioCtx.state === 'suspended') {
+                    this.audioCtx.resume();
+                }
+                const targetVol = this.isMutedForMic ? 0 : this.normalVolume;
+                this.masterGain.gain.linearRampToValueAtTime(targetVol, this.audioCtx.currentTime + 1.5);
+            }
+
+            stop() {
+                this.isEnabled = false;
+                if (!this.masterGain) return;
+                this.masterGain.gain.linearRampToValueAtTime(0, this.audioCtx.currentTime + 1.0);
+            }
+
+            duck() {
+                if (!this.isEnabled || !this.masterGain) return;
+                this.masterGain.gain.linearRampToValueAtTime(this.duckedVolume, this.audioCtx.currentTime + 0.3);
+            }
+
+            unduck() {
+                if (!this.isEnabled || !this.masterGain || this.isMutedForMic) return;
+                this.masterGain.gain.linearRampToValueAtTime(this.normalVolume, this.audioCtx.currentTime + 0.8);
+            }
+
+            setMuteForMic(mute) {
+                this.isMutedForMic = mute;
+                if (!this.isEnabled || !this.masterGain) return;
+                const targetVol = mute ? 0 : this.normalVolume;
+                this.masterGain.gain.linearRampToValueAtTime(targetVol, this.audioCtx.currentTime + (mute ? 0.1 : 1.0));
+            }
+
+            setThinking(isThinking) {
+                if (!this.audioCtx || !this.isEnabled) return;
+                const now = this.audioCtx.currentTime;
+                if (isThinking) {
+                    // Increase frequency of humming sound to represent system load (shifted up)
+                    if (this.osc1) this.osc1.frequency.linearRampToValueAtTime(130, now + 0.4);
+                    if (this.osc2) this.osc2.frequency.linearRampToValueAtTime(260, now + 0.4);
+                    this.masterGain.gain.linearRampToValueAtTime(this.normalVolume * 1.6, now + 0.4);
+                } else {
+                    // Restore to normal (shifted up)
+                    if (this.osc1) this.osc1.frequency.linearRampToValueAtTime(90, now + 0.8);
+                    if (this.osc2) this.osc2.frequency.linearRampToValueAtTime(180.5, now + 0.8);
+                    const targetVol = this.isMutedForMic ? 0 : this.normalVolume;
+                    this.masterGain.gain.linearRampToValueAtTime(targetVol, now + 0.8);
+                }
+            }
+        }
+
+        const jarvisSoundscape = new JarvisSoundscape();
+
+        function toggleAmbientHum() {
+            const toggle = document.getElementById('ambientHumToggle');
+            if (toggle.checked) {
+                jarvisSoundscape.start();
+            } else {
+                jarvisSoundscape.stop();
+            }
+        }
+
         let activeWavRecorder = null;
         let isVoiceRegistering = false;
         let voiceLockActive = false;
         let lastRecordedWavBlob = null;
         let voiceRegistered = false;
+
+        // ── 상담 노트 JS 함수 ──
+        async function loadTodayConsultations() {
+            const listEl = document.getElementById('consultationList');
+            if (!listEl) return;
+            listEl.innerHTML = `<div class="loading-state" style="padding: 24px 0;">
+                <p style="font-size: 0.85rem; color: var(--text-muted);">불러오는 중...</p>
+            </div>`;
+            try {
+                const res = await fetch('/api/consultation/today');
+                if (!res.ok) throw new Error('API error');
+                const data = await res.json();
+                if (!Array.isArray(data) || data.length === 0) {
+                    listEl.innerHTML = `<div class="empty-state" style="padding: 30px 0;">
+                        <svg viewBox="0 0 24 24" style="fill: rgba(139,92,246,0.25); width:40px; height:40px;">
+                            <path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6z"/>
+                        </svg>
+                        <p style="color: var(--text-muted); font-size: 0.88rem;">오늘 저장된 상담 기록이 없습니다.</p>
+                        <p style="color: rgba(139,92,246,0.6); font-size: 0.78rem; margin-top: 4px;">자비스 터미널에서 "김철수 상담 기록해줘" 라고 말해보세요.</p>
+                    </div>`;
+                    return;
+                }
+                // Docs 링크 표시 (첫 번째 항목의 URL 기준)
+                const firstUrl = data[0].docs_url;
+                if (firstUrl) {
+                    const linkSpan = document.getElementById('consultDocsLink');
+                    const anchor = document.getElementById('consultDocsAnchor');
+                    if (linkSpan && anchor) { linkSpan.style.display = 'inline'; anchor.href = firstUrl; }
+                }
+                listEl.innerHTML = data.map((item, idx) => `
+                    <div class="consult-item">
+                        <div class="consult-num">${idx + 1}</div>
+                        <div style="flex: 1; min-width: 0;">
+                            <div class="consult-name">${escapeHtml(item.client_name)}</div>
+                            <div class="consult-time">⏱ ${item.time || ''}</div>
+                            <div class="consult-note">${escapeHtml(item.structured_note || '')}</div>
+                            ${item.docs_url ? `<a href="${item.docs_url}" target="_blank" class="consult-link">
+                                <svg viewBox="0 0 24 24" style="width:12px;height:12px;fill:#8b5cf6;"><path d="M19 19H5V5h7V3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/></svg>
+                                Docs 열기
+                            </a>` : ''}
+                        </div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                listEl.innerHTML = `<div class="empty-state" style="padding: 20px 0; color: #ef4444;">
+                    <p style="font-size: 0.85rem;">목록을 불러오지 못했습니다.</p>
+                </div>`;
+                console.error('loadTodayConsultations error:', err);
+            }
+        }
+
+        async function saveConsultationNote() {
+            const nameEl = document.getElementById('consultClientName');
+            const noteEl = document.getElementById('consultNote');
+            const btn = document.getElementById('btnConsultSave');
+            const clientName = nameEl ? nameEl.value.trim() : '';
+            const rawNote = noteEl ? noteEl.value.trim() : '';
+            if (!clientName) { alert('내담자 이름을 입력해 주세요.'); return; }
+            if (!rawNote) { alert('상담 내용을 입력해 주세요.'); return; }
+            if (btn) { btn.innerText = '저장 중...'; btn.disabled = true; }
+            try {
+                const res = await fetch('/api/consultation', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ client_name: clientName, raw_note: rawNote })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || '저장 실패');
+                if (nameEl) nameEl.value = '';
+                if (noteEl) noteEl.value = '';
+                await loadTodayConsultations();
+                // 터미널에 결과 메시지 출력
+                appendChatMessage('jarvis', data.message || '상담 노트가 저장되었습니다.');
+            } catch (err) {
+                alert('저장 실패: ' + err.message);
+                console.error('saveConsultationNote error:', err);
+            } finally {
+                if (btn) { btn.innerText = '📋 저장'; btn.disabled = false; }
+            }
+        }
+
+        // IoT 스마트 기기 상태 조회 API 호출
+        async function fetchDevices() {
+            try {
+                const res = await fetch('/api/devices');
+                if (!res.ok) throw new Error('Failed to fetch devices');
+                const data = await res.json();
+                
+                updateDeviceUI('switchbot', data.switchbot);
+                updateDeviceUI('smartplug', data.smartplug);
+            } catch (err) {
+                console.error("fetchDevices error:", err);
+            }
+        }
+
+        // IoT 스마트 기기 상태 토글 API 호출
+        async function toggleDevice(deviceId) {
+            const btn = document.getElementById(`btnToggle${deviceId.charAt(0).toUpperCase() + deviceId.slice(1)}`);
+            if (btn) btn.disabled = true;
+            try {
+                const res = await fetch(`/api/devices/${deviceId}/toggle`, {
+                    method: 'POST'
+                });
+                if (!res.ok) throw new Error('Toggle failed');
+                const data = await res.json();
+                
+                updateDeviceUI(deviceId, data[deviceId]);
+                playJarvisSound('processing');
+            } catch (err) {
+                alert(`${deviceId} 토글 실패: ` + err.message);
+                console.error("toggleDevice error:", err);
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        // 기기 UI 상태 및 클래스 업데이트 (status-active / pulse overlay 추가/제거)
+        function updateDeviceUI(deviceId, state) {
+            const valEl = document.getElementById(`${deviceId}StateVal`);
+            const widgetEl = document.getElementById(`device-${deviceId}`);
+            
+            if (valEl) {
+                valEl.innerText = state;
+                if (state === 'ON') {
+                    valEl.style.color = 'var(--primary-neon)';
+                    valEl.style.textShadow = '0 0 5px rgba(0, 242, 254, 0.5)';
+                } else {
+                    valEl.style.color = 'var(--text-muted)';
+                    valEl.style.textShadow = 'none';
+                }
+            }
+            
+            if (widgetEl) {
+                if (state === 'ON') {
+                    widgetEl.classList.add('status-active');
+                    // 기존 CSS 애니메이션과 충돌 방지하기 위해 별도 독립 레이어로 .pulse 추가
+                    if (!widgetEl.querySelector('.pulse')) {
+                        const pulseDiv = document.createElement('div');
+                        pulseDiv.className = 'pulse';
+                        widgetEl.appendChild(pulseDiv);
+                    }
+                } else {
+                    widgetEl.classList.remove('status-active');
+                    const pulseDiv = widgetEl.querySelector('.pulse');
+                    if (pulseDiv) pulseDiv.remove();
+                }
+            }
+        }
 
         async function checkVoiceStatus() {
             try {
@@ -1050,15 +1540,17 @@
             if (guide) guide.style.display = 'block';
             
             const steps = [
-                { label: 'normal', desc: '1단계: 평소 톤으로 읽어주세요' },
-                { label: 'quiet', desc: '2단계: 조용히 속삭이듯 낮게 읽어주세요' },
-                { label: 'clear', desc: '3단계: 빠르고 또렷한 톤으로 읽어주세요' }
+                { label: 'normal', desc: '1단계 (평소 말투): "내 목소리를 등록해줘"', text: '내 목소리를 등록해줘' },
+                { label: 'quiet', desc: '2단계 (조용한 밀착 톤): "자비스 보안 잠금 해제"', text: '자비스 보안 잠금 해제' },
+                { label: 'clear', desc: '3단계 (빠르고 또렷하게): "오늘 일정 모두 보여줘"', text: '오늘 일정 모두 보여줘' },
+                { label: 'distant', desc: '4단계 (거리감 있는 평소 톤): "자비스 지금 몇 시야"', text: '자비스 지금 몇 시야' },
+                { label: 'loud', desc: '5단계 (소음을 뚫는 강한 발성): "자비스 상담 노트 기록해"', text: '자비스 상담 노트 기록해' }
             ];
             
             async function runStep(stepIndex) {
                 if (stepIndex >= steps.length) {
                     if (btn) btn.innerText = '등록 완료';
-                    if (status) status.innerText = '3개 성문 저장 완료!';
+                    if (status) status.innerText = '5개 성문 저장 완료!';
                     if (guide) guide.style.display = 'none';
                     setTimeout(() => {
                         if (btn) btn.innerText = '목소리 재등록';
@@ -1070,11 +1562,11 @@
                 }
                 
                 const currentStep = steps[stepIndex];
-                if (btn) btn.innerText = `${stepIndex + 1}/3 녹음 중`;
+                if (btn) btn.innerText = `${stepIndex + 1}/5 녹음 중`;
                 if (guide) {
                     guide.innerHTML = `
                         <span style="color: var(--text-muted); font-size: 0.75rem;">${currentStep.desc}</span><br>
-                        <strong style="color: var(--primary-neon); font-size: 0.95rem; display: block; margin-top: 4px;">"내 목소리를 등록해줘"</strong>
+                        <strong style="color: var(--primary-neon); font-size: 0.95rem; display: block; margin-top: 4px;">"${currentStep.text}"</strong>
                     `;
                 }
                 
@@ -1310,9 +1802,10 @@
                 let listHtml = '<ul class="email-list">';
                 data.forEach(mail => {
                     listHtml += `
-                        <li class="email-card">
+                        <li class="email-card" id="mail-card-${mail.id}">
                             <div class="email-header">
                                 <span class="email-sender">${escapeHtml(mail.from)}</span>
+                                <button class="btn-mail-read" onclick="markEmailAsRead('${mail.id}')">✓ 읽음</button>
                             </div>
                             <div class="email-subject">${escapeHtml(mail.subject)}</div>
                             <div class="email-snippet">${escapeHtml(mail.snippet)}</div>
@@ -1334,6 +1827,49 @@
                         <p style="font-size: 0.85rem; color: rgba(239, 68, 68, 0.85);">세부 오류: ${escapeHtml(error.message || error)}</p>
                     </div>
                 `;
+            }
+        }
+
+        // 개별 메일 읽음 처리 API 호출 함수
+        async function markEmailAsRead(messageId) {
+            try {
+                // 클릭 즉시 반응성을 주기 위해 투명도를 조절하고 이벤트를 비활성화
+                const card = document.getElementById(`mail-card-${messageId}`);
+                if (card) {
+                    card.style.opacity = '0.5';
+                    card.style.pointerEvents = 'none';
+                }
+                
+                const response = await fetch(`/api/gmail/read/${messageId}`, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    let errMessage = `HTTP status: ${response.status}`;
+                    try {
+                        const errData = await response.json();
+                        if (errData && errData.detail) {
+                            errMessage = errData.detail;
+                        }
+                    } catch (e) {}
+                    throw new Error(errMessage);
+                }
+                
+                // 성공 사운드 효과음 출력
+                playJarvisSound('processing');
+                
+                // 목록 비동기 새로고침
+                await fetchUnreadEmails();
+            } catch (error) {
+                console.error('Failed to mark email as read:', error);
+                alert('이메일 읽음 처리 실패: ' + error.message);
+                
+                // 실패 시 원래대로 카드를 복구
+                const card = document.getElementById(`mail-card-${messageId}`);
+                if (card) {
+                    card.style.opacity = '1';
+                    card.style.pointerEvents = 'auto';
+                }
             }
         }
 
@@ -1370,9 +1906,12 @@
         let wakeWordRecognition;
         let isWakeWordListening = false;
         let wakeWordTimeout = null;
+        let isContinuousSession = false; // 연속 대화 세션 활성화 플래그
+        let continuousSessionTimeout = null; // 연속 대화 타임아웃 타이머 핸들러
+        const continuousSessionDuration = 8000; // 연속 대화 대기 시간 (8초)
 
         // Web Audio API를 사용한 자비스 효과음 합성 함수
-        function playJarvisSound(type) {
+        function synthesizeJarvisSound(type) {
             try {
                 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
                 if (!AudioContextClass) return;
@@ -1429,8 +1968,20 @@
                     osc.stop(now + 0.2);
                 }
             } catch (e) {
-                console.error("Failed to play Jarvis sound:", e);
+                console.error("Failed to synthesize Jarvis sound:", e);
             }
+        }
+
+        // 효과음 파일 재생 함수 (로컬 파일 시도 후 실패 시 합성 재생)
+        function playJarvisSound(type) {
+            const audio = new Audio(`/static/sounds/${type}.mp3`);
+            audio.volume = 0.25;
+            audio.play().then(() => {
+                console.log(`Successfully played local sound: ${type}.mp3`);
+            }).catch(err => {
+                console.warn(`Failed to play local sound for ${type}, synthesizing via Web Audio API instead:`, err);
+                synthesizeJarvisSound(type);
+            });
         }
 
         // 터미널 위젯 테두리 글로우 효과 업데이트 함수
@@ -1441,17 +1992,20 @@
             widget.classList.remove('glow-idle', 'glow-listening', 'glow-thinking');
             
             if (!active) {
-                widget.style.boxShadow = '';
-                widget.style.borderColor = '';
+                widget.classList.add('glow-idle');
+                if (window.jarvisSoundscape) jarvisSoundscape.setThinking(false);
                 return;
             }
             
             if (state === 'idle') {
                 widget.classList.add('glow-idle');
+                if (window.jarvisSoundscape) jarvisSoundscape.setThinking(false);
             } else if (state === 'listening') {
                 widget.classList.add('glow-listening');
+                if (window.jarvisSoundscape) jarvisSoundscape.setThinking(false);
             } else if (state === 'thinking') {
                 widget.classList.add('glow-thinking');
+                if (window.jarvisSoundscape) jarvisSoundscape.setThinking(true);
             }
         }
 
@@ -1507,6 +2061,25 @@
 
             wakeWordRecognition.onerror = (event) => {
                 console.error("Wake word recognition error:", event.error);
+                
+                if (event.error === 'network' || event.error === 'not-allowed') {
+                    // 크리티컬 에러 발생 시 반복 재기동 방지를 위해 토글 해제 및 모드 종료
+                    const toggle = document.getElementById('wakeWordToggle');
+                    if (toggle) {
+                        toggle.checked = false;
+                    }
+                    isContinuousSession = false;
+                    stopWakeWordListening();
+                    updateTerminalGlow(false);
+                    
+                    let errorMsg = "음성 호출(Wake Word) 오류가 발생하여 자동 감지를 중단했습니다. ";
+                    if (event.error === 'network') {
+                        errorMsg += "구글 음성 인식 API 서버에 연결할 수 없습니다. 크롬(Chrome) 브라우저인지 확인하거나 인터넷 연결 상태를 점검해 주세요. (IDE 내장 브라우저 뷰어 등은 지원되지 않을 수 있으므로 실제 크롬 창에서 열어주세요.)";
+                    } else if (event.error === 'not-allowed') {
+                        errorMsg += "마이크 권한이 차단되었습니다. 주소창 왼쪽 아이콘을 눌러 마이크 권한을 허용해 주세요.";
+                    }
+                    appendChatMessage('system', "⚠️ " + errorMsg);
+                }
             };
         }
 
@@ -1536,6 +2109,11 @@
             if (toggle.checked) {
                 startWakeWordListening();
             } else {
+                isContinuousSession = false;
+                if (continuousSessionTimeout) {
+                    clearTimeout(continuousSessionTimeout);
+                    continuousSessionTimeout = null;
+                }
                 stopWakeWordListening();
                 updateTerminalGlow(false);
             }
@@ -1544,14 +2122,37 @@
         // 자비스 말하기(음성 합성/재생)가 끝났을 때 자동 호출되는 콜백 함수
         function onJarvisSpeakingFinished() {
             isProcessingChat = false;
+            jarvisSoundscape.unduck();
+            jarvisSoundscape.setThinking(false);
             const toggle = document.getElementById('wakeWordToggle');
             if (toggle && toggle.checked) {
-                // 연속 대화 모드: 자비스 대답 후 호출어 필요 없이 마이크를 즉시 활성화하여 귀를 기울임
+                // 연속 대화 세션 활성화 및 8초 카운트다운 시작
+                isContinuousSession = true;
+                console.log("[Continuous Session] Started. Active for " + (continuousSessionDuration / 1000) + "s.");
+                
+                if (continuousSessionTimeout) clearTimeout(continuousSessionTimeout);
+                continuousSessionTimeout = setTimeout(() => {
+                    if (isContinuousSession) {
+                        isContinuousSession = false;
+                        console.log("[Continuous Session] Timeout reached. Returning to wake word mode.");
+                        // 만약 현재 음성 인식 상태라면 stop해 줍니다.
+                        if (isSpeechRecognizing && recognition) {
+                            recognition.stop();
+                        }
+                        if (document.getElementById('wakeWordToggle')?.checked) {
+                            startWakeWordListening();
+                        } else {
+                            updateTerminalGlow(false);
+                        }
+                    }
+                }, continuousSessionDuration);
+
+                // 안전 지연시간 후 연속 대화 마이크 활성화
                 setTimeout(() => {
-                    if (document.getElementById('wakeWordToggle')?.checked) {
+                    if (document.getElementById('wakeWordToggle')?.checked && isContinuousSession) {
                         startSpeechRecognition();
                     }
-                }, 400); // 이전 오디오 재생 종료 후 마이크 감지 활성화까지 안전 지연시간
+                }, 400);
             } else {
                 updateTerminalGlow(false);
             }
@@ -1565,6 +2166,13 @@
 
             const message = input.value.trim();
             if (!message) return;
+
+            // 연속 대화 세션 및 타이머 임시 보류 (질문 전송 중)
+            isContinuousSession = false;
+            if (continuousSessionTimeout) {
+                clearTimeout(continuousSessionTimeout);
+                continuousSessionTimeout = null;
+            }
 
             // 1. 사용자 메시지 렌더링 및 입력 필드 비우기
             appendChatMessage('user', message);
@@ -1581,6 +2189,7 @@
                 stopWakeWordListening();
                 updateTerminalGlow(true, 'thinking');
                 playJarvisSound('processing');
+                jarvisSoundscape.duck();
 
                 let response;
                 if (voiceLockActive) {
@@ -1634,6 +2243,10 @@
                         speak(aiResponse);
                     }
                 }
+                
+                // 화면 실시간 동기화 (새로고침 없이 일정 및 상담 일지 연동)
+                fetchTodayEvents();
+                loadTodayConsultations();
                 
             } catch (error) {
                 console.error('Terminal chat error:', error);
@@ -1701,6 +2314,14 @@
                 voiceBtn.style.background = 'linear-gradient(135deg, #ef4444, #b91c1c)';
                 voiceBtn.style.boxShadow = '0 0 15px rgba(239, 68, 68, 0.5)';
 
+                // 연속 대화 감지 활성화 상태라면, 녹음 개시 중에는 타임아웃 타이머 잠시 클리어
+                if (continuousSessionTimeout) {
+                    clearTimeout(continuousSessionTimeout);
+                    continuousSessionTimeout = null;
+                }
+
+                jarvisSoundscape.setMuteForMic(true);
+
                 if (voiceLockActive) {
                     lastRecordedWavBlob = null;
                     activeWavRecorder = new WAVRecorder();
@@ -1718,6 +2339,8 @@
                 voiceBtn.style.background = 'linear-gradient(135deg, #dc2626, #991b1b)';
                 voiceBtn.style.boxShadow = 'none';
                 
+                jarvisSoundscape.setMuteForMic(false);
+                
                 if (voiceLockActive && activeWavRecorder && !hasSpeechResult) {
                     try {
                         activeWavRecorder.stop();
@@ -1725,11 +2348,21 @@
                     activeWavRecorder = null;
                 }
 
-                // 사용자가 아무 말도 안 해서 무응답으로 꺼진 경우(hasSpeechResult === false)에만 상시 호출 대기 모드로 하향 전환
+                // 사용자가 아무 말도 안 해서 무응답으로 꺼진 경우(hasSpeechResult === false)
                 if (!isProcessingChat && !hasSpeechResult) {
                     const toggle = document.getElementById('wakeWordToggle');
                     if (toggle && toggle.checked) {
-                        startWakeWordListening();
+                        // 연속 대화 세션 상태이며 아직 시간 내인 경우, 즉시 음성 인식을 다시 기동하여 마이크를 켬
+                        if (isContinuousSession) {
+                            console.log("[Continuous Session] Silent interval. Restarting speech recognition...");
+                            setTimeout(() => {
+                                if (isContinuousSession && document.getElementById('wakeWordToggle')?.checked && !isSpeechRecognizing) {
+                                    startSpeechRecognition();
+                                }
+                            }, 300);
+                        } else {
+                            startWakeWordListening();
+                        }
                     } else {
                         updateTerminalGlow(false);
                     }
@@ -1746,8 +2379,24 @@
                     } catch (err) {}
                     activeWavRecorder = null;
                 }
-                // 사용자의 무응답(no-speech)이나 중단(aborted)에 대해서는 알림창을 띄우지 않고 가볍게 넘어갑니다.
-                if (event.error !== 'no-speech' && event.error !== 'aborted') {
+                
+                if (event.error === 'network' || event.error === 'not-allowed') {
+                    const toggle = document.getElementById('wakeWordToggle');
+                    if (toggle) {
+                        toggle.checked = false;
+                    }
+                    isContinuousSession = false;
+                    stopWakeWordListening();
+                    updateTerminalGlow(false);
+                    
+                    let errorMsg = "";
+                    if (event.error === 'network') {
+                        errorMsg = "음성인식 서버 연결에 실패했습니다. 크롬 브라우저 환경인지 확인해 주시기 바랍니다.";
+                    } else if (event.error === 'not-allowed') {
+                        errorMsg = "마이크 권한이 거부되었습니다.";
+                    }
+                    appendChatMessage('system', "⚠️ " + errorMsg);
+                } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
                     alert('음성 인식 오류: ' + event.error);
                 }
             };
@@ -1779,6 +2428,7 @@
                 return;
             }
 
+            jarvisSoundscape.duck();
             window.speechSynthesis.cancel();
 
             const cleanText = text.replace(/[*_`#~\[\]\(\)]/g, ' ');
@@ -1823,7 +2473,7 @@
                 utterance.voice = selectedVoice;
             }
 
-            utterance.rate = 1.5;   
+            utterance.rate = 1.3;   
             utterance.pitch = 0.8;  
 
             window.speechSynthesis.speak(utterance);
@@ -1832,6 +2482,7 @@
         // 구글 클라우드 TTS 오디오 재생 함수 (오토플레이 오류 시 브라우저 내장 TTS로 Fallback)
         function playBase64Audio(base64String, fallbackText) {
             try {
+                jarvisSoundscape.duck();
                 if (window.speechSynthesis) {
                     window.speechSynthesis.cancel();
                 }
@@ -1849,6 +2500,26 @@
             } catch (e) {
                 console.error("Playback error:", e);
                 speak(fallbackText);
+            }
+        }
+
+        async function triggerDailyBriefing(force = false) {
+            try {
+                const url = force ? '/api/briefing?force=true' : '/api/briefing';
+                const response = await fetch(url);
+                if (!response.ok) return;
+                const data = await response.json();
+                
+                if (data.triggered && data.response) {
+                    appendChatMessage('jarvis', data.response);
+                    if (data.audio) {
+                        playBase64Audio(data.audio, data.response);
+                    } else {
+                        speak(data.response);
+                    }
+                }
+            } catch (err) {
+                console.error("Daily briefing error:", err);
             }
         }
 
@@ -1872,13 +2543,42 @@
 
         // 페이지 로드 즉시 실행 및 엔터 키 바인딩
         document.addEventListener('DOMContentLoaded', () => {
+            // PWA 서비스 워커 등록
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('[Service Worker] Registered with scope:', reg.scope))
+                    .catch(err => console.error('[Service Worker] Registration failed:', err));
+            }
+
             fetchTodayEvents();
             fetchUnreadEmails();
             checkVoiceStatus();
+            loadTodayConsultations();
+            
+            // IoT 스마트 기기 상태 조회 및 30초 폴링
+            fetchDevices();
+            setInterval(fetchDevices, 30000);
+            
+            // 아침 브리핑 실행 (오늘 최초 접속 시)
+            triggerDailyBriefing();
             
             // 30초 간격으로 백엔드의 실시간 능동 알림을 폴링하여 모니터링
             checkProactiveNotifications();
             setInterval(checkProactiveNotifications, 30000);
+
+            // ambientHumToggle가 checked일 때의 상태 동기화 및 험 사운드 기동 시도
+            const ambientHumToggle = document.getElementById('ambientHumToggle');
+            if (ambientHumToggle && ambientHumToggle.checked) {
+                jarvisSoundscape.start();
+            }
+
+            // 사용자 상호작용 트리거 (Autoplay Policy 해제용)
+            document.body.addEventListener('click', () => {
+                const humToggle = document.getElementById('ambientHumToggle');
+                if (humToggle && humToggle.checked && jarvisSoundscape && !jarvisSoundscape.isEnabled) {
+                    jarvisSoundscape.start();
+                }
+            }, { once: true });
 
             const input = document.getElementById('terminalInput');
             if (input) {
