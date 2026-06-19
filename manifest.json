@@ -3,7 +3,7 @@
   "name": "Jarvis Command Center OS",
   "icons": [
     {
-      "src": "/static/icon-512.png",
+      "src": "/static/icon-192.png",
       "type": "image/png",
       "sizes": "192x192",
       "purpose": "any maskable"
