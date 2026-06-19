@@ -664,27 +664,91 @@
         }
 
         /* 모바일 반응형 및 터치 최적화 미디어 쿼리 */
+        /* 데스크톱 기본 스위치 행 스타일 */
+        .terminal-settings-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .switch-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.75rem;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+        }
+
+        /* 모바일 반응형 및 터치 최적화 미디어 쿼리 */
         @media (max-width: 768px) {
             body {
                 background-attachment: scroll;
             }
             header {
-                padding: 16px 20px;
-                flex-direction: column;
-                gap: 12px;
-                text-align: center;
+                padding: 12px 16px;
+                flex-direction: row;
+                justify-content: space-between;
+                align-items: center;
+                gap: 8px;
+            }
+            header h1 {
+                font-size: 1.1rem;
+                letter-spacing: 1.5px;
+            }
+            header h1 span {
+                font-size: 0.55rem !important;
+                margin-left: 4px !important;
+            }
+            .logo-container {
+                gap: 8px;
+            }
+            .logo-glow {
+                width: 8px;
+                height: 8px;
+            }
+            .status-badge {
+                padding: 4px 10px;
+                font-size: 0.65rem;
             }
             main {
-                padding: 16px;
+                padding: 12px;
+                display: flex;
+                flex-direction: column;
+                gap: 16px;
+            }
+            #jarvisTerminal {
+                order: 1;
+                margin-top: 0 !important;
             }
             .dashboard-grid {
+                order: 2;
                 grid-template-columns: 1fr;
                 gap: 20px;
+            }
+            #consultationWidget {
+                order: 3;
+                margin-top: 0 !important;
             }
             .terminal-widget {
                 width: 100%;
                 padding: 16px;
-                margin-top: 20px;
+            }
+            .widget-title {
+                flex-direction: column !important;
+                align-items: flex-start !important;
+                gap: 12px !important;
+            }
+            .terminal-settings-row {
+                width: 100%;
+                justify-content: space-between;
+                flex-wrap: wrap;
+                gap: 12px;
+            }
+            .switch-item {
+                font-size: 0.7rem !important;
+                gap: 6px !important;
+                letter-spacing: 0.5px;
             }
             .terminal-input-row {
                 flex-direction: column;
@@ -835,7 +899,7 @@
     <header>
         <div class="logo-container">
             <div class="logo-glow"></div>
-            <h1>Jarvis Command Center</h1>
+            <h1>Jarvis Command Center <span style="font-size: 0.65rem; font-weight: 300; opacity: 0.7; letter-spacing: 1.5px; vertical-align: middle; margin-left: 8px; font-family: 'Orbitron', sans-serif;">v1.2.6</span></h1>
         </div>
         {% if is_logged_in %}
         <div class="status-badge connected" id="connectionStatus">
@@ -1034,7 +1098,7 @@
 
         <!-- JARVIS AI Terminal Widget -->
 
-        <div class="terminal-widget glow-idle">
+        <div class="terminal-widget glow-idle" id="jarvisTerminal">
             <div class="widget-title" style="margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; width: 100%;">
                 <div style="display: flex; align-items: center; gap: 8px;">
                     자비스 AI 터미널 (JARVIS AI TERMINAL)
@@ -1043,29 +1107,29 @@
                     </svg>
                 </div>
                 <!-- WAKE WORD & VOICE LOCK TOGGLE SWITCHES -->
-                <div style="display: flex; align-items: center; gap: 16px;">
-                    <div style="display: flex; align-items: center; gap: 8px; font-family: 'Orbitron', sans-serif; font-size: 0.75rem; letter-spacing: 1px; color: var(--text-muted);">
+                <div class="terminal-settings-row">
+                    <div class="switch-item">
                         <span>WAKE WORD</span>
                         <label class="switch" style="position: relative; display: inline-block; width: 34px; height: 20px;">
                             <input type="checkbox" id="wakeWordToggle" onchange="toggleWakeWord()" style="opacity: 0; width: 0; height: 0;">
                             <span class="slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.1); border: 1px solid var(--border-color); transition: .4s; border-radius: 20px;"></span>
                         </label>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 8px; font-family: 'Orbitron', sans-serif; font-size: 0.75rem; letter-spacing: 1px; color: var(--text-muted);">
+                    <div class="switch-item">
                         <span>VOICE LOCK</span>
                         <label class="switch" style="position: relative; display: inline-block; width: 34px; height: 20px;">
                             <input type="checkbox" id="voiceLockToggle" onchange="toggleVoiceLock()" style="opacity: 0; width: 0; height: 0;">
                             <span class="slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.1); border: 1px solid var(--border-color); transition: .4s; border-radius: 20px;"></span>
                         </label>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 8px; font-family: 'Orbitron', sans-serif; font-size: 0.75rem; letter-spacing: 1px; color: var(--text-muted);">
+                    <div class="switch-item">
                         <span>SUIT HUM</span>
                         <label class="switch" style="position: relative; display: inline-block; width: 34px; height: 20px;">
                             <input type="checkbox" id="ambientHumToggle" onchange="toggleAmbientHum()" style="opacity: 0; width: 0; height: 0;" checked>
                             <span class="slider" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.1); border: 1px solid var(--border-color); transition: .4s; border-radius: 20px;"></span>
                         </label>
                     </div>
-                    <button id="pwaInstallBtn" style="display: none; background: transparent; border: 1px solid var(--primary-neon); color: var(--primary-neon); padding: 4px 10px; border-radius: 4px; font-family: 'Orbitron', sans-serif; font-size: 0.65rem; cursor: pointer; letter-spacing: 1px; box-shadow: 0 0 5px rgba(0, 242, 254, 0.2); text-shadow: 0 0 4px var(--primary-neon); transition: all 0.3s ease; margin-left: 8px; align-self: center;" onclick="triggerPWAInstall()">INSTALL APP</button>
+                    <button id="pwaInstallBtn" style="display: none; background: transparent; border: 1px solid var(--primary-neon); color: var(--primary-neon); padding: 4px 10px; border-radius: 4px; font-family: 'Orbitron', sans-serif; font-size: 0.65rem; cursor: pointer; letter-spacing: 1px; box-shadow: 0 0 5px rgba(0, 242, 254, 0.2); text-shadow: 0 0 4px var(--primary-neon); transition: all 0.3s ease; align-self: center;" onclick="triggerPWAInstall()">INSTALL APP</button>
                 </div>
             </div>
             
@@ -2925,7 +2989,8 @@
                 let interimTranscript = '';
                 let finalTranscript = '';
 
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                // 0번 인덱스부터 전체 결과를 다시 스캔하여 중간 결과와 최종 결과를 누적 조립 (문자 오버라이트 현상 방지)
+                for (let i = 0; i < event.results.length; ++i) {
                     if (event.results[i].isFinal) {
                         finalTranscript += event.results[i][0].transcript;
                     } else {
@@ -2933,15 +2998,17 @@
                     }
                 }
 
-                // 중간 인식 결과를 인풋창에 즉각 반영하여 반응성(예민도) 체감 향상
-                if (interimTranscript !== '') {
-                    input.value = interimTranscript;
-                }
+                // 인풋창에 실시간 진행 상황을 누적하여 표시 (최종값 + 말하고 있는 중인 청크)
+                input.value = finalTranscript + interimTranscript;
 
-                // 최종 완료 결과가 들어왔을 때만 전송
-                if (finalTranscript !== '') {
-                    input.value = finalTranscript;
-                    
+                // 세션 유지를 위해 말하기 플래그 설정
+                isUserSpeaking = true;
+
+                // 마지막 결과 청크가 최종 완료(isFinal) 상태일 때만 실제 전송 처리
+                const isLastFinal = event.results[event.results.length - 1].isFinal;
+                if (isLastFinal && finalTranscript.trim() !== '') {
+                    input.value = finalTranscript; // 최종 텍스트만 깔끔하게 주입
+
                     if (activeWavRecorder) {
                         try {
                             lastRecordedWavBlob = activeWavRecorder.stop();
