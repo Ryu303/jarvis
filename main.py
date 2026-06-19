@@ -11,7 +11,7 @@ from datetime import datetime, time
 from email.utils import parseaddr
 from email.header import decode_header, make_header
 from fastapi import FastAPI, Request, HTTPException, File, UploadFile, Form
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
