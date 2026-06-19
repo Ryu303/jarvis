@@ -2829,7 +2829,7 @@
 
             recognition = new SpeechRecognition();
             recognition.lang = 'ko-KR';
-            recognition.interimResults = false;
+            recognition.interimResults = true; // 실시간 텍스트 피드백으로 반응성 극대화
             recognition.maxAlternatives = 1;
 
             recognition.onstart = () => {
@@ -2922,19 +2922,36 @@
 
             recognition.onresult = (event) => {
                 hasSpeechResult = true;
-                const resultText = event.results[0][0].transcript;
-                input.value = resultText;
+                let interimTranscript = '';
+                let finalTranscript = '';
 
-                if (activeWavRecorder) {
-                    try {
-                        lastRecordedWavBlob = activeWavRecorder.stop();
-                    } catch (err) {
-                        console.error("Failed to stop voice recorder:", err);
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript;
+                    } else {
+                        interimTranscript += event.results[i][0].transcript;
                     }
-                    activeWavRecorder = null; // 메모리 누수 및 재호출 방지를 위해 null 처리
                 }
 
-                sendChatMessage();
+                // 중간 인식 결과를 인풋창에 즉각 반영하여 반응성(예민도) 체감 향상
+                if (interimTranscript !== '') {
+                    input.value = interimTranscript;
+                }
+
+                // 최종 완료 결과가 들어왔을 때만 전송
+                if (finalTranscript !== '') {
+                    input.value = finalTranscript;
+                    
+                    if (activeWavRecorder) {
+                        try {
+                            lastRecordedWavBlob = activeWavRecorder.stop();
+                        } catch (err) {
+                            console.error("Failed to stop voice recorder:", err);
+                        }
+                        activeWavRecorder = null;
+                    }
+                    sendChatMessage();
+                }
             };
 
             try {
@@ -3029,7 +3046,7 @@
                 utterance.voice = selectedVoice;
             }
 
-            utterance.rate = 1.3;   
+            utterance.rate = 1.5;   
             utterance.pitch = 0.8;  
 
             window.speechSynthesis.speak(utterance);

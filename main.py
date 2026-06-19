@@ -1867,6 +1867,11 @@ def extract_mfcc_from_bytes(audio_bytes: bytes) -> np.ndarray:
     ])
     return feat_vec  # 80차원
 
+class AudioTooQuietError(ValueError):
+    """음성 데이터가 너무 조용하거나 무음인 경우 발생하는 예외"""
+    pass
+
+
 def extract_mfcc_frames(audio_bytes: bytes) -> np.ndarray:
     """WAV 바이트 데이터로부터 프레임 단위의 MFCC 시퀀스를 추출합니다.
     형태: (num_frames, 40) - [MFCC(20), Delta(20)]
@@ -1886,10 +1891,15 @@ def extract_mfcc_frames(audio_bytes: bytes) -> np.ndarray:
                 signal = signal.reshape(-1, nchannels).mean(axis=1)
             signal /= 32768.0
             
-            # RMS 볼륨 정규화 (볼륨 크기 편차에 의한 오인식 방지)
+            # RMS 볼륨 측정 (무음 감지)
             rms = np.sqrt(np.mean(signal ** 2))
-            if rms > 1e-5:
-                signal = signal * (0.05 / rms)
+            if rms < 0.0015:
+                raise AudioTooQuietError("입력된 음성 신호의 크기가 너무 작습니다. (무음 감지)")
+            
+            # RMS 볼륨 정규화 (볼륨 크기 편차에 의한 오인식 방지)
+            signal = signal * (0.05 / rms)
+    except AudioTooQuietError as e:
+        raise e
     except Exception as e:
         print(f"[MFCC Frames Extractor] Error parsing WAV bytes: {e}")
         return None
@@ -2443,7 +2453,7 @@ def synthesize_speech(text: str):
                 "name": "ko-KR-Neural2-C",
                 "ssmlGender": "MALE"
             },
-            "audioConfig": {"audioEncoding": "MP3"}
+            "audioConfig": {"audioEncoding": "MP3", "speakingRate": 1.2}
         }).encode("utf-8")
         req = urllib.request.Request(
             url,
