@@ -2848,40 +2848,28 @@
                 isSpeechRecognizing = false;
                 isUserSpeaking = false;
                 jarvisSoundscape.setMuteForMic(false);
+                voiceBtn.innerText = '🎤 음성 입력';
+                voiceBtn.style.background = 'linear-gradient(135deg, #dc2626, #991b1b)';
+                voiceBtn.style.boxShadow = 'none';
 
                 if (activeWavRecorder) {
-                    try {
-                        activeWavRecorder.stop();
-                    } catch (err) {}
+                    try { activeWavRecorder.stop(); } catch (err) {}
                     activeWavRecorder = null;
                 }
 
-                // aborted 또는 audio-capture 오류 발생 시 하드웨어 충돌로 판단하여 녹음기 없이 재시도 준비
-                if ((event.error === 'aborted' || event.error === 'audio-capture') && !skipRecorder && !voiceLockActive) {
-                    console.warn("[STT] Microphone conflict detected. Preparing retry without recorder.");
-                    retryWithoutRecorder = true;
-                    return; // onend에서 자동 재시작됨
-                }
-                
-                if (event.error === 'network' || event.error === 'not-allowed') {
-                    const toggle = document.getElementById('wakeWordToggle');
-                    if (toggle) {
-                        toggle.checked = false;
-                    }
-                    isContinuousSession = false;
-                    stopWakeWordListening();
-                    updateTerminalGlow(false);
-                    
-                    let errorMsg = "";
-                    if (event.error === 'network') {
-                        errorMsg = "음성인식 서버 연결에 실패했습니다. 크롬 브라우저 환경인지 확인해 주시기 바랍니다.";
-                    } else if (event.error === 'not-allowed') {
-                        errorMsg = "마이크 권한이 거부되었습니다.";
-                    }
-                    appendChatMessage('system', "⚠️ " + errorMsg);
-                } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
-                    alert('음성 인식 오류: ' + event.error);
-                }
+                // 모든 에러를 채팅창에 표시하여 진단 가능하게 함
+                const errorMessages = {
+                    'network': '❌ [STT 오류] 구글 음성인식 서버에 연결할 수 없습니다. 인터넷 연결과 Google 앱 업데이트를 확인해주세요.',
+                    'not-allowed': '❌ [STT 오류] 마이크 권한이 거부됐습니다. 브라우저 설정에서 마이크 권한을 허용해주세요.',
+                    'audio-capture': '❌ [STT 오류] 마이크를 찾을 수 없습니다. 마이크가 연결됐는지 확인해주세요.',
+                    'no-speech': '⚠️ [STT] 음성이 감지되지 않았습니다. 마이크에 더 가까이 대고 말해보세요.',
+                    'aborted': '⚠️ [STT] 음성 인식이 중단됐습니다.',
+                    'service-not-allowed': '❌ [STT 오류] 이 환경에서 음성 인식 서비스가 허용되지 않습니다.',
+                    'language-not-supported': '❌ [STT 오류] 한국어(ko-KR) 언어팩이 기기에 없습니다.',
+                };
+                const msg = errorMessages[event.error] || `❌ [STT 오류] ${event.error}`;
+                appendChatMessage('system', msg);
+                updateTerminalGlow(false);
             };
 
             recognition.onresult = (event) => {
@@ -2900,6 +2888,24 @@
 
                 sendChatMessage();
             };
+
+            // Android PWA standalone 모드에서 Web Speech API가 마이크 권한을 자동으로 받지 못하는 문제 해결.
+            // getUserMedia로 명시적으로 마이크 권한을 PWA 컨텍스트에 획득한 후 스트림을 즉시 해제하고 STT 시작.
+            try {
+                const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                micStream.getTracks().forEach(track => track.stop()); // 권한 확인 후 즉시 해제
+                console.log("[STT] Microphone permission confirmed in PWA context.");
+            } catch (err) {
+                console.error("[STT] Microphone access denied:", err);
+                appendChatMessage('system', '❌ 마이크에 접근할 수 없습니다: ' + err.message + '\n\n홈화면 PWA 설정에서 마이크 권한을 허용해주세요.');
+                isSpeechRecognizing = false;
+                voiceBtn.innerText = '🎤 음성 입력';
+                voiceBtn.style.background = 'linear-gradient(135deg, #dc2626, #991b1b)';
+                voiceBtn.style.boxShadow = 'none';
+                jarvisSoundscape.setMuteForMic(false);
+                updateTerminalGlow(false);
+                return;
+            }
 
             try {
                 recognition.start();
