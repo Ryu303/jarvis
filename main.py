@@ -22,6 +22,9 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request as GoogleRequest
 from datetime import timezone
 
+# KST 타임존 객체 선언 (Render 등 UTC 서버 대응)
+KST = timezone(timedelta(hours=9))
+
 # Firebase Admin SDK 관련 패키지 로드
 try:
     import firebase_admin
@@ -693,7 +696,7 @@ class FirestoreAdapter(DatabaseAdapter):
         try:
             docs = self.db.collection('consultations').stream()
             results = []
-            today_date_str = datetime.now().strftime("%Y-%m-%d")
+            today_date_str = datetime.now(KST).strftime("%Y-%m-%d")
             for d in docs:
                 data = d.to_dict()
                 ts = data.get('timestamp')
@@ -1078,8 +1081,8 @@ def get_today_calendar():
         service = build("calendar", "v3", credentials=creds)
         
         # 오늘의 로컬 자정부터 자정까지의 시간 계산 (로컬 타임존 적용)
-        now = datetime.now()
-        local_tz = datetime.now().astimezone().tzinfo
+        now = datetime.now(KST)
+        local_tz = KST
         
         start_of_today = datetime.combine(now.date(), time.min).replace(tzinfo=local_tz).isoformat()
         end_of_today = datetime.combine(now.date(), time.max).replace(tzinfo=local_tz).isoformat()
@@ -1239,8 +1242,8 @@ def check_schedule_in_range(start_date: str = None, end_date: str = None, **kwar
         return "로그인이 되어 있지 않습니다. 대시보드 로그인 버튼을 통해 먼저 구글 연동 로그인을 완료해 주세요."
     try:
         service = build("calendar", "v3", credentials=creds)
-        now = datetime.now()
-        local_tz = datetime.now().astimezone().tzinfo
+        now = datetime.now(KST)
+        local_tz = KST
         
         # 시작 시간 설정
         if not start_date:
@@ -1680,7 +1683,7 @@ def clear_chat_history() -> str:
 def get_current_time(**kwargs) -> str:
     """현재 날짜와 시간을 조회합니다. 오늘이 몇 일인지, 지금이 몇 시인지 등 현재 시간/날짜 정보가 필요할 때 이 함수를 사용합니다."""
     from datetime import datetime
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def get_weather(location: str = "Seoul", day: str = "today") -> str:
@@ -3071,11 +3074,11 @@ def background_monitor_loop():
             # 2. 15분 이내 임박한 구글 캘린더 일정 감지
             try:
                 calendar_service = build("calendar", "v3", credentials=creds)
-                now = datetime.now()
-                local_tz = datetime.now().astimezone().tzinfo
+                now = datetime.now(KST)
+                local_tz = KST
                 
-                start_time_limit = now.astimezone().isoformat()
-                end_time_limit = (now + timedelta(hours=1)).astimezone().isoformat()
+                start_time_limit = now.isoformat()
+                end_time_limit = (now + timedelta(hours=1)).isoformat()
                 
                 events_result = calendar_service.events().list(
                     calendarId='primary',
@@ -3128,7 +3131,7 @@ def background_monitor_loop():
                 if is_plug_on:
                     power_usage = check_smart_plug_power()
                     if power_usage >= 2000.0:
-                        now = datetime.now()
+                        now = datetime.now(KST)
                         if last_overpower_alert_time is None or (now - last_overpower_alert_time).total_seconds() > 300:
                             db_adapter.add_notification(
                                 "스마트 플러그 경고",
@@ -3257,8 +3260,8 @@ def save_consultation_note(client_name: str, raw_note: str) -> str:
     """
     from datetime import datetime
 
-    today_str = datetime.now().strftime("%Y년 %m월 %d일")
-    now_time = datetime.now().strftime("%H:%M")
+    today_str = datetime.now(KST).strftime("%Y년 %m월 %d일")
+    now_time = datetime.now(KST).strftime("%H:%M")
     doc_title = f"상담 일지 - {today_str}"
 
     # ── 1. Gemini로 상담 내용 구조화 ──
@@ -3476,8 +3479,9 @@ class TaskOrchestrator:
         steps_log.append("4단계 [Level 2]: 구글 캘린더에 상담 준비 세션 등록 중...")
         try:
             from datetime import datetime, time, timezone, timedelta
-            start_time = (datetime.now() + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:00+09:00")
-            end_time = (datetime.now() + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:00+09:00")
+            now_kst = datetime.now(KST)
+            start_time = (now_kst + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:00+09:00")
+            end_time = (now_kst + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:00+09:00")
             cal_title = f"{keyword} 님과의 상담 세션"
             cal_res = Calendar(title=cal_title, start_time=start_time, end_time=end_time)
             steps_log.append(f"캘린더 등록 결과: {cal_res}\n")
@@ -3561,8 +3565,9 @@ class TaskOrchestrator:
         steps_log.append("4단계 [Level 2]: 구글 캘린더에 회의 세션 등록 중...")
         try:
             from datetime import datetime, time, timezone, timedelta
-            start_time = (datetime.now() + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:00+09:00")
-            end_time = (datetime.now() + timedelta(hours=4)).strftime("%Y-%m-%dT%H:%M:00+09:00")
+            now_kst = datetime.now(KST)
+            start_time = (now_kst + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:00+09:00")
+            end_time = (now_kst + timedelta(hours=4)).strftime("%Y-%m-%dT%H:%M:00+09:00")
             cal_title = f"{keyword} 회의 세션"
             cal_res = Calendar(title=cal_title, start_time=start_time, end_time=end_time)
             steps_log.append(f"캘린더 등록 결과: {cal_res}\n")
@@ -3703,7 +3708,7 @@ def check_briefing_triggered_today() -> bool:
     """오늘 이미 브리핑이 실행되었는지 여부를 확인합니다."""
     try:
         from datetime import datetime
-        today_str = datetime.now().date().isoformat()
+        today_str = datetime.now(KST).date().isoformat()
         profiles = db_adapter.get_all_user_profiles()
         last_briefing = profiles.get("last_briefing_date")
         if last_briefing == today_str:
@@ -3718,7 +3723,7 @@ def record_briefing_triggered_today():
     """오늘 브리핑이 실행되었음을 DB에 기록합니다."""
     try:
         from datetime import datetime
-        today_str = datetime.now().date().isoformat()
+        today_str = datetime.now(KST).date().isoformat()
         db_adapter.save_user_profile("last_briefing_date", today_str)
         print("[Briefing] Recorded triggered date:", today_str)
     except Exception as e:
@@ -3736,8 +3741,8 @@ def generate_daily_briefing_text() -> str:
     if creds:
         try:
             service = build("calendar", "v3", credentials=creds)
-            now = datetime.now()
-            local_tz = datetime.now().astimezone().tzinfo
+            now = datetime.now(KST)
+            local_tz = KST
             start_of_today = datetime.combine(now.date(), time.min).replace(tzinfo=local_tz).isoformat()
             end_of_today = datetime.combine(now.date(), time.max).replace(tzinfo=local_tz).isoformat()
             
@@ -3811,7 +3816,7 @@ def generate_daily_briefing_text() -> str:
     prompt = (
         "당신은 개인 AI 비서 '자비스'입니다. 아침에 기상한 사용자에게 전달할 일일 모닝 브리핑 브리프를 작성해 주세요.\n"
         "다음은 연동된 스마트 홈 정보 및 오늘 하루 요약 정보입니다:\n\n"
-        f"[오늘의 날짜 및 현재 시각]\n{datetime.now().strftime('%Y년 %m월 %d일 %H시 %M분')}\n\n"
+        f"[오늘의 날짜 및 현재 시각]\n{datetime.now(KST).strftime('%Y년 %m월 %d일 %H시 %M분')}\n\n"
         f"[오늘의 구글 캘린더 일정]\n{calendar_info}\n\n"
         f"[읽지 않은 중요 이메일]\n{gmail_info}\n\n"
         f"[스마트 홈 기기 상태]\n- 스위치봇: {switchbot}\n- 스마트 플러그: {smartplug}\n\n"
@@ -3840,7 +3845,7 @@ def generate_daily_briefing_text() -> str:
     
     # Fallback Template
     return (
-        f"좋은 아침입니다. {datetime.now().strftime('%m월 %d일')} 아침 브리핑을 보고드립니다. "
+        f"좋은 아침입니다. {datetime.now(KST).strftime('%m월 %d일')} 아침 브리핑을 보고드립니다. "
         f"오늘 예정된 주요 일정은 다음과 같습니다: {calendar_info.replace('- ', '')}. "
         f"읽지 않은 이메일은 {gmail_info.replace('- ', '')} 등이 있습니다. "
         f"현재 스위치봇은 {switchbot}, 스마트 플러그는 {smartplug} 상태입니다. 오늘 하루도 좋은 하루 보내시기 바랍니다."
