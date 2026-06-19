@@ -2386,6 +2386,79 @@ def make_http_request(method: str, url: str, headers: str = None, body: str = No
 
 
 
+def synthesize_speech_elevenlabs(text: str):
+    """ElevenLabs API를 사용해 텍스트를 음성으로 변환합니다.
+    API 키가 없거나 오류 발생 시 None을 반환합니다.
+    """
+    if not text:
+        return None
+    api_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
+    voice_id = os.getenv("ELEVENLABS_VOICE_ID", "").strip()
+    if not api_key or not voice_id:
+        return None
+    try:
+        import urllib.request
+        import urllib.error
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+        payload = json.dumps({
+            "text": text[:2500],
+            "model_id": "eleven_multilingual_v2",
+            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={
+                "xi-api-key": api_key,
+                "Content-Type": "application/json",
+                "Accept": "audio/mpeg"
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            audio_bytes = resp.read()
+        return base64.b64encode(audio_bytes).decode("utf-8")
+    except Exception as e:
+        print(f"[ElevenLabs TTS Error] {e}")
+        return None
+
+
+def synthesize_speech(text: str):
+    """Google Cloud Text-to-Speech REST API를 사용해 한국어 음성을 합성합니다.
+    GCP_API_KEY가 없거나 오류 발생 시 None을 반환합니다.
+    """
+    if not text:
+        return None
+    gcp_key = os.getenv("GCP_API_KEY", "").strip()
+    if not gcp_key:
+        return None
+    try:
+        import urllib.request
+        import urllib.error
+        url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={gcp_key}"
+        payload = json.dumps({
+            "input": {"text": text[:4000]},
+            "voice": {
+                "languageCode": "ko-KR",
+                "name": "ko-KR-Neural2-C",
+                "ssmlGender": "MALE"
+            },
+            "audioConfig": {"audioEncoding": "MP3"}
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+        return result.get("audioContent")
+    except Exception as e:
+        print(f"[Google TTS Error] {e}")
+        return None
+
+
 def get_tts_text(text: str) -> str:
     """TTS 전송용 텍스트를 최적화합니다.
     300자 미만인 경우 마크다운 기호만 정제하고,
