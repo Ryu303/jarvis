@@ -1,10 +1,7 @@
-const CACHE_NAME = 'jarvis-os-cache-v1';
+const CACHE_NAME = 'jarvis-os-cache-v2';
 const ASSETS_TO_CACHE = [
   '/',
-  '/static/icon-512.png',
-  '/static/sounds/processing.mp3',
-  '/static/sounds/wake_word.mp3',
-  '/static/sounds/error.mp3'
+  '/static/icon-512.png'
 ];
 
 // 서비스 워커 설치 및 캐싱
