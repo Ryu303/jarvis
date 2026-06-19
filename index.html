@@ -931,6 +931,7 @@
                         </div>
                         <div style="display: flex; gap: 10px; margin-top: 4px; align-items: center;">
                             <button id="btnVoiceRegister" onclick="startVoiceRegistration()" class="btn-action" style="flex: none; width: auto; padding: 6px 12px; font-size: 0.75rem; background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3); color: #10b981; border-radius: 6px; margin: 0;">목소리 등록</button>
+                            <button id="btnVoiceAppend" onclick="startVoiceAppending()" class="btn-action" style="display: none; flex: none; width: auto; padding: 6px 12px; font-size: 0.75rem; background: rgba(0, 242, 254, 0.15); border-color: rgba(0, 242, 254, 0.35); color: var(--primary-neon); border-radius: 6px; margin: 0;">목소리 추가 등록</button>
                             <span id="voiceRegisterStatus" style="font-size: 0.75rem; color: var(--text-muted); font-family: monospace;"></span>
                         </div>
                         <div id="voiceGuideBox" style="display: none; margin-top: 8px; padding: 8px; background: rgba(0, 242, 254, 0.05); border: 1px dashed rgba(0, 242, 254, 0.2); border-radius: 6px; font-size: 0.8rem; text-align: center;">
@@ -1287,6 +1288,8 @@
                     view.setInt16(index, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
                     index += 2;
                 }
+                
+                this.processor = null; // Mark as stopped to prevent double-stop errors
                 
                 return new Blob([view], { type: 'audio/wav' });
             }
@@ -1774,13 +1777,19 @@
                     const data = await response.json();
                     voiceRegistered = data.registered;
                     const statusVal = document.getElementById('voiceStatusVal');
+                    const btnAppend = document.getElementById('btnVoiceAppend');
+                    const btnReg = document.getElementById('btnVoiceRegister');
                     if (statusVal) {
                         if (voiceRegistered) {
-                            statusVal.innerText = '등록됨';
+                            statusVal.innerText = `등록됨 (기본 ${data.base_count} / 추가 ${data.append_count} / 학습 ${data.auto_count} | 임계값: ${data.threshold})`;
                             statusVal.style.color = '#10b981';
+                            if (btnAppend) btnAppend.style.display = 'inline-block';
+                            if (btnReg) btnReg.innerText = '목소리 재등록';
                         } else {
                             statusVal.innerText = '미등록';
                             statusVal.style.color = '#ef4444';
+                            if (btnAppend) btnAppend.style.display = 'none';
+                            if (btnReg) btnReg.innerText = '목소리 등록';
                             const toggle = document.getElementById('voiceLockToggle');
                             if (toggle) {
                                 toggle.checked = false;
@@ -1912,6 +1921,101 @@
             }
             
             await runStep(0);
+        }
+
+        let isVoiceAppending = false;
+        async function startVoiceAppending() {
+            if (isVoiceRegistering || isVoiceAppending) return;
+            isVoiceAppending = true;
+            
+            const btn = document.getElementById('btnVoiceAppend');
+            const status = document.getElementById('voiceRegisterStatus');
+            const guide = document.getElementById('voiceGuideBox');
+            
+            if (guide) guide.style.display = 'block';
+            
+            const appendPrompts = [
+                "자비스, 새로운 이메일 확인해줘",
+                "자비스, 스마트 플러그 전원 차단해",
+                "자비스, 내일 오전 회의 일정 등록해",
+                "자비스, 오늘 하루 고생 많았어",
+                "자비스, 보안 레이어 모니터링 시작해"
+            ];
+            
+            const randomPrompt = appendPrompts[Math.floor(Math.random() * appendPrompts.length)];
+            
+            if (btn) btn.innerText = '녹음 준비 중';
+            if (guide) {
+                guide.innerHTML = `
+                    <span style="color: var(--text-muted); font-size: 0.75rem;">추가 등록 (또박또박 읽어주세요)</span><br>
+                    <strong style="color: var(--primary-neon); font-size: 0.95rem; display: block; margin-top: 4px;">"${randomPrompt}"</strong>
+                `;
+            }
+            
+            if (status) status.innerText = '마이크 켜는 중...';
+            
+            const recorder = new WAVRecorder();
+            try {
+                await recorder.start();
+                
+                let secondsLeft = 3;
+                if (status) status.innerText = `${secondsLeft}초 남음...`;
+                if (btn) btn.innerText = '녹음 중...';
+                
+                const interval = setInterval(() => {
+                    secondsLeft--;
+                    if (secondsLeft > 0) {
+                        if (status) status.innerText = `${secondsLeft}초 남음...`;
+                    } else {
+                        clearInterval(interval);
+                    }
+                }, 1000);
+                
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                
+                if (status) status.innerText = '추가 성문 분석 중...';
+                
+                const wavBlob = recorder.stop();
+                if (!wavBlob) {
+                    throw new Error("WAV blob is null");
+                }
+                
+                const formData = new FormData();
+                formData.append('file', wavBlob, `append.wav`);
+                
+                const response = await fetch(`/api/voice/register?label=append&append=true`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const errData = await response.json();
+                    throw new Error(errData.detail || "Server error");
+                }
+                
+                if (status) status.innerText = '추가 등록 성공!';
+                if (btn) btn.innerText = '등록 완료';
+                
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                
+                if (guide) guide.style.display = 'none';
+                if (status) status.innerText = '';
+                if (btn) btn.innerText = '목소리 추가 등록';
+                
+                isVoiceAppending = false;
+                await checkVoiceStatus();
+                
+            } catch (err) {
+                console.error("Voice appending failed:", err);
+                if (btn) btn.innerText = '에러 발생';
+                if (status) status.innerText = '실패: ' + err.message;
+                if (guide) guide.style.display = 'none';
+                isVoiceAppending = false;
+                setTimeout(() => {
+                    if (btn) btn.innerText = '목소리 추가 등록';
+                    if (status) status.innerText = '';
+                }, 4000);
+            }
         }
 
         // 날짜 문자열 포맷 변환 함수
@@ -2625,8 +2729,14 @@
         // Web Speech API STT (음성 인식) 구현
         let recognition;
         let isSpeechRecognizing = false; // 중복 실행 방지를 위한 플래그 추가
-        function startSpeechRecognition() {
+        let retryWithoutRecorder = false; // 마이크 충돌 발생 시 우회 재시도 플래그
+
+        async function startSpeechRecognition(skipRecorder = false) {
             stopAllJarvisVoices(); // 마이크 활성화 시 이전 자비스 음성 즉각 끊기
+            
+            // 웨이크 워드 리스너를 즉시 중지하여 듀얼 SpeechRecognition 인스턴스 충돌 방지
+            stopWakeWordListening();
+
             const voiceBtn = document.getElementById('voiceBtn');
             const input = document.getElementById('terminalInput');
             if (!input || !voiceBtn) return;
@@ -2642,32 +2752,40 @@
                 return;
             }
 
+            // 시작 직후 즉시 상태 설정 및 UI 갱신 (비동기 경쟁 조건 방지)
+            isSpeechRecognizing = true;
+            hasSpeechResult = false;
+            isUserSpeaking = false;
+
+            updateTerminalGlow(true, 'listening');
+            voiceBtn.innerText = '🛑 음성 인식 중...';
+            voiceBtn.style.background = 'linear-gradient(135deg, #ef4444, #b91c1c)';
+            voiceBtn.style.boxShadow = '0 0 15px rgba(239, 68, 68, 0.5)';
+
+            jarvisSoundscape.setMuteForMic(true);
+
+            // 음성 녹음 (WAVRecorder) 기동 여부 결정
+            lastRecordedWavBlob = null;
+            activeWavRecorder = null;
+
+            if (!skipRecorder) {
+                activeWavRecorder = new WAVRecorder();
+                try {
+                    // SpeechRecognition.start() 이전에 getUserMedia를 구동해야 크롬에서 세션 abort를 피할 수 있음
+                    await activeWavRecorder.start();
+                } catch (err) {
+                    console.error("Failed to start voice recorder:", err);
+                    activeWavRecorder = null; // 실패 시 안전하게 null 리셋하고 STT만 시도
+                }
+            }
+
             recognition = new SpeechRecognition();
             recognition.lang = 'ko-KR';
             recognition.interimResults = false;
             recognition.maxAlternatives = 1;
 
-            recognition.onstart = async () => {
-                isSpeechRecognizing = true;
-                hasSpeechResult = false;
-                isUserSpeaking = false; // 말하기 시작 상태 초기화
-                stopWakeWordListening();
-                updateTerminalGlow(true, 'listening');
-                voiceBtn.innerText = '🛑 음성 인식 중...';
-                voiceBtn.style.background = 'linear-gradient(135deg, #ef4444, #b91c1c)';
-                voiceBtn.style.boxShadow = '0 0 15px rgba(239, 68, 68, 0.5)';
-
-                jarvisSoundscape.setMuteForMic(true);
-
-                // 음성 입력을 사용할 때는 항상 감정 분석/성문 검증을 위해 WAV 녹음 기동
-                lastRecordedWavBlob = null;
-                activeWavRecorder = new WAVRecorder();
-                try {
-                    await activeWavRecorder.start();
-                } catch (err) {
-                    console.error("Failed to start voice recorder:", err);
-                    activeWavRecorder = null; // 실패 시 안전하게 null 리셋
-                }
+            recognition.onstart = () => {
+                console.log("[STT] Speech recognition session started.");
             };
 
             // 사용자가 말하기 시작한 시점 포착하여 세션 연장 플래그 설정
@@ -2685,11 +2803,21 @@
                 
                 jarvisSoundscape.setMuteForMic(false);
                 
-                if (activeWavRecorder && !hasSpeechResult) {
-                    try {
-                        activeWavRecorder.stop();
-                    } catch (err) {}
+                if (activeWavRecorder) {
+                    if (!hasSpeechResult) {
+                        try {
+                            activeWavRecorder.stop();
+                        } catch (err) {}
+                    }
                     activeWavRecorder = null;
+                }
+
+                // 마이크 충돌로 인한 abort 감지 시 자동 리커버리 수행
+                if (retryWithoutRecorder) {
+                    retryWithoutRecorder = false;
+                    console.log("[STT] Retrying speech recognition without recorder...");
+                    startSpeechRecognition(true);
+                    return;
                 }
 
                 // 사용자가 아무 말도 안 해서 무응답으로 꺼진 경우(hasSpeechResult === false)
@@ -2727,6 +2855,13 @@
                     } catch (err) {}
                     activeWavRecorder = null;
                 }
+
+                // aborted 또는 audio-capture 오류 발생 시 하드웨어 충돌로 판단하여 녹음기 없이 재시도 준비
+                if ((event.error === 'aborted' || event.error === 'audio-capture') && !skipRecorder && !voiceLockActive) {
+                    console.warn("[STT] Microphone conflict detected. Preparing retry without recorder.");
+                    retryWithoutRecorder = true;
+                    return; // onend에서 자동 재시작됨
+                }
                 
                 if (event.error === 'network' || event.error === 'not-allowed') {
                     const toggle = document.getElementById('wakeWordToggle');
@@ -2760,12 +2895,26 @@
                     } catch (err) {
                         console.error("Failed to stop voice recorder:", err);
                     }
+                    activeWavRecorder = null; // 메모리 누수 및 재호출 방지를 위해 null 처리
                 }
 
                 sendChatMessage();
             };
 
-            recognition.start();
+            try {
+                recognition.start();
+            } catch (e) {
+                console.error("SpeechRecognition start failed:", e);
+                isSpeechRecognizing = false;
+                voiceBtn.innerText = '🎤 음성 입력';
+                voiceBtn.style.background = 'linear-gradient(135deg, #dc2626, #991b1b)';
+                jarvisSoundscape.setMuteForMic(false);
+                if (activeWavRecorder) {
+                    try { activeWavRecorder.stop(); } catch (err) {}
+                    activeWavRecorder = null;
+                }
+                updateTerminalGlow(false);
+            }
         }
 
         // 현재 출력 중인 모든 종류의 음성(SpeechSynthesis 및 HTML5 Audio 객체)을 강제 중단하는 함수

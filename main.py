@@ -17,9 +17,741 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 from dotenv import load_dotenv
 from google_auth_oauthlib.flow import Flow
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request as GoogleRequest
 from googleapiclient.discovery import build
+import datetime
+from datetime import timezone
+
+# Firebase Admin SDK 관련 패키지 로드
+try:
+    import firebase_admin
+    from firebase_admin import credentials, firestore
+    FIREBASE_AVAILABLE = True
+except ImportError:
+    FIREBASE_AVAILABLE = False
+
+
+# 데이터베이스 타입 검출 (sqlite 또는 firebase)
+DB_TYPE = os.getenv("DATABASE_TYPE", "sqlite").lower()
+
+db_client = None
+if DB_TYPE == "firebase" and FIREBASE_AVAILABLE:
+    cred_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON_PATH")
+    if cred_path and os.path.exists(cred_path):
+        try:
+            cred = credentials.Certificate(cred_path)
+            firebase_admin.initialize_app(cred)
+            db_client = firestore.client()
+            print("[Firebase] Initialized with Service Account JSON.")
+        except Exception as e:
+            print(f"[Firebase] Initialization failed with Certificate: {e}")
+    else:
+        # Default credential (e.g. Cloud Run, GCP environment, or local auth)
+        try:
+            firebase_admin.initialize_app()
+            db_client = firestore.client()
+            print("[Firebase] Initialized with default credentials.")
+        except Exception as e:
+            print(f"[Firebase] Initialized without credentials. Running in mock or warning mode: {e}")
+
+
+class DatabaseAdapter:
+    def save_user_profile(self, key: str, value: str) -> str:
+        raise NotImplementedError()
+    def delete_user_profile(self, key: str) -> str:
+        raise NotImplementedError()
+    def get_all_user_profiles(self) -> dict:
+        raise NotImplementedError()
+        
+    def add_notification(self, title: str, message: str):
+        raise NotImplementedError()
+    def get_unread_notifications(self) -> list:
+        raise NotImplementedError()
+    def mark_notifications_as_read(self, ids: list):
+        raise NotImplementedError()
+    def check_notification_exists_by_message_pattern(self, pattern: str) -> bool:
+        raise NotImplementedError()
+        
+    def save_chat_message(self, role: str, content: str):
+        raise NotImplementedError()
+    def load_chat_history(self) -> list:
+        raise NotImplementedError()
+    def clear_chat_history(self):
+        raise NotImplementedError()
+        
+    def save_voice_profile(self, features: list, label: str) -> str:
+        raise NotImplementedError()
+    def get_all_voice_profiles(self) -> list:
+        raise NotImplementedError()
+    def delete_all_voice_profiles(self):
+        raise NotImplementedError()
+    def delete_voice_profile_by_id(self, profile_id):
+        raise NotImplementedError()
+    def delete_voice_profiles_by_label_like(self, pattern: str):
+        raise NotImplementedError()
+    def check_has_voice_profile(self) -> bool:
+        raise NotImplementedError()
+        
+    def save_voice_setting(self, key: str, value: str):
+        raise NotImplementedError()
+    def get_voice_setting(self, key: str) -> str:
+        raise NotImplementedError()
+    def delete_voice_setting(self, key: str):
+        raise NotImplementedError()
+    def get_voice_status_info(self) -> dict:
+        raise NotImplementedError()
+        
+    def save_consultation(self, client_name: str, structured_note: str, docs_url: str) -> str:
+        raise NotImplementedError()
+    def get_today_consultations(self) -> list:
+        raise NotImplementedError()
+        
+    def save_semantic_memory(self, query: str, response: str, embedding: list):
+        raise NotImplementedError()
+    def get_all_semantic_memories(self) -> list:
+        raise NotImplementedError()
+
+
+class SQLiteAdapter(DatabaseAdapter):
+    def __init__(self, db_path="jarvis_memory.db"):
+        self.db_path = db_path
+
+    def save_user_profile(self, key: str, value: str) -> str:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR REPLACE INTO user_profiles (key, value) VALUES (?, ?)", (key, value))
+            conn.commit()
+            conn.close()
+            return f"기억 성공: {key} = {value}"
+        except Exception as e:
+            return f"기억 실패: {str(e)}"
+
+    def delete_user_profile(self, key: str) -> str:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM user_profiles WHERE key = ?", (key,))
+            conn.commit()
+            conn.close()
+            return f"기억 삭제 성공: {key}"
+        except Exception as e:
+            return f"기억 삭제 실패: {str(e)}"
+
+    def get_all_user_profiles(self) -> dict:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT key, value FROM user_profiles")
+            rows = cursor.fetchall()
+            conn.close()
+            return {row[0]: row[1] for row in rows}
+        except Exception as e:
+            print(f"Error getting profiles: {e}")
+            return {}
+
+    def add_notification(self, title: str, message: str):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO notifications (title, message) VALUES (?, ?)", (title, message))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error adding notification: {e}")
+
+    def get_unread_notifications(self) -> list:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, title, message, timestamp FROM notifications WHERE read = 0 ORDER BY id ASC")
+            rows = cursor.fetchall()
+            conn.close()
+            return [{"id": str(r[0]), "title": r[1], "message": r[2], "timestamp": r[3]} for r in rows]
+        except Exception as e:
+            print(f"Error getting notifications: {e}")
+            return []
+
+    def mark_notifications_as_read(self, ids: list):
+        if not ids:
+            return
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            placeholders = ",".join(["?"] * len(ids))
+            numeric_ids = []
+            for item in ids:
+                try:
+                    numeric_ids.append(int(item))
+                except ValueError:
+                    numeric_ids.append(item)
+            cursor.execute(f"UPDATE notifications SET read = 1 WHERE id IN ({placeholders})", numeric_ids)
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error marking notifications read: {e}")
+
+    def check_notification_exists_by_message_pattern(self, pattern: str) -> bool:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM notifications WHERE message LIKE ?", (pattern,))
+            row = cursor.fetchone()
+            conn.close()
+            return row is not None
+        except Exception:
+            return False
+
+    def save_chat_message(self, role: str, content: str):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO messages (role, content) VALUES (?, ?)", (role, content))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error saving chat message: {e}")
+
+    def load_chat_history(self) -> list:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT role, content FROM (
+                    SELECT id, role, content FROM messages ORDER BY id DESC LIMIT 10
+                ) ORDER BY id ASC
+            """)
+            rows = cursor.fetchall()
+            conn.close()
+            return [{"role": r[0], "parts": [r[1]]} for r in rows]
+        except Exception as e:
+            print(f"Error loading chat history: {e}")
+            return []
+
+    def clear_chat_history(self):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM messages")
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error clearing chat history: {e}")
+
+    def save_voice_profile(self, features: list, label: str) -> str:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO voice_profiles (features, label) VALUES (?, ?)",
+                           (json.dumps(features), label))
+            main_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
+            return str(main_id)
+        except Exception as e:
+            print(f"Error saving voice profile: {e}")
+            return "0"
+
+    def get_all_voice_profiles(self) -> list:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, features, label, timestamp FROM voice_profiles")
+            rows = cursor.fetchall()
+            conn.close()
+            return [{"id": str(r[0]), "features": json.loads(r[1]), "label": r[2], "timestamp": r[3]} for r in rows]
+        except Exception as e:
+            print(f"Error getting voice profiles: {e}")
+            return []
+
+    def delete_all_voice_profiles(self):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM voice_profiles")
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error deleting voice profiles: {e}")
+
+    def delete_voice_profile_by_id(self, profile_id):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM voice_profiles WHERE id = ?", (int(profile_id),))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error deleting voice profile by id: {e}")
+
+    def delete_voice_profiles_by_label_like(self, pattern: str):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM voice_profiles WHERE label LIKE ?", (pattern,))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error deleting voice profiles by label pattern: {e}")
+
+    def check_has_voice_profile(self) -> bool:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM voice_profiles ORDER BY id DESC LIMIT 1")
+            row = cursor.fetchone()
+            conn.close()
+            return row is not None
+        except Exception:
+            return False
+
+    def save_voice_setting(self, key: str, value: str):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR REPLACE INTO voice_settings (key, value) VALUES (?, ?)", (key, value))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error saving voice setting: {e}")
+
+    def get_voice_setting(self, key: str) -> str:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM voice_settings WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            conn.close()
+            return row[0] if row else None
+        except Exception as e:
+            print(f"Error getting voice setting: {e}")
+            return None
+
+    def delete_voice_setting(self, key: str):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM voice_settings WHERE key = ?", (key,))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error deleting voice setting: {e}")
+
+    def get_voice_status_info(self) -> dict:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM voice_profiles")
+            total_count = cursor.fetchone()[0]
+            
+            if total_count == 0:
+                conn.close()
+                return {"registered": False, "total_count": 0, "base_count": 0, "append_count": 0, "auto_count": 0, "threshold": "0.0%"}
+                
+            cursor.execute("SELECT COUNT(*) FROM voice_profiles WHERE label IN ('normal', 'quiet', 'clear', 'distant', 'loud')")
+            base_count = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM voice_profiles WHERE label LIKE 'append_%' AND label NOT LIKE '%_aug_%'")
+            append_count = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT COUNT(*) FROM voice_profiles WHERE label = 'auto_adapted'")
+            auto_count = cursor.fetchone()[0]
+            
+            cursor.execute("SELECT value FROM voice_settings WHERE key='adaptive_threshold'")
+            th_row = cursor.fetchone()
+            threshold_val = float(th_row[0]) if th_row else 0.78
+            threshold_str = f"{threshold_val * 100:.1f}%"
+            
+            conn.close()
+            return {
+                "registered": base_count >= 5 or total_count > 0,
+                "total_count": total_count,
+                "base_count": base_count,
+                "append_count": append_count,
+                "auto_count": auto_count,
+                "threshold": threshold_str
+            }
+        except Exception as e:
+            print(f"Error getting voice status: {e}")
+            return {"registered": False, "total_count": 0, "base_count": 0, "append_count": 0, "auto_count": 0, "threshold": "0.0%"}
+
+    def save_consultation(self, client_name: str, structured_note: str, docs_url: str) -> str:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO consultations (client_name, structured_note, docs_url) VALUES (?, ?, ?)",
+                           (client_name, structured_note, docs_url))
+            conn.commit()
+            conn.close()
+            return "상담 일지가 성공적으로 데이터베이스에 저장되었습니다."
+        except Exception as e:
+            return f"DB 저장 실패: {str(e)}"
+
+    def get_today_consultations(self) -> list:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT client_name, structured_note, docs_url, timestamp 
+                FROM consultations 
+                WHERE date(timestamp) = date('now', 'localtime') 
+                ORDER BY id DESC
+            """)
+            rows = cursor.fetchall()
+            conn.close()
+            
+            results = []
+            for r in rows:
+                ts_str = r[3]
+                time_only = ts_str.split(" ")[1][:5] if ts_str and " " in ts_str else ""
+                results.append({
+                    "client_name": r[0],
+                    "structured_note": r[1],
+                    "docs_url": r[2],
+                    "time": time_only
+                })
+            return results
+        except Exception as e:
+            print(f"Error getting today consultations: {e}")
+            return []
+
+    def save_semantic_memory(self, query: str, response: str, embedding: list):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO semantic_memories (query, response, embedding) VALUES (?, ?, ?)",
+                (query, response, json.dumps(embedding))
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"[Semantic Memory Save Error] {e}")
+
+    def get_all_semantic_memories(self) -> list:
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT query, response, embedding, timestamp FROM semantic_memories")
+            rows = cursor.fetchall()
+            conn.close()
+            return [{"query": r[0], "response": r[1], "embedding": json.loads(r[2]), "timestamp": r[3]} for r in rows]
+        except Exception as e:
+            print(f"Error getting semantic memories: {e}")
+            return []
+
+
+class FirestoreAdapter(DatabaseAdapter):
+    def __init__(self):
+        pass
+
+    @property
+    def db(self):
+        global db_client
+        if db_client is None:
+            raise HTTPException(status_code=500, detail="⚠️ Firebase DB가 초기화되지 않았습니다. .env에 올바른 자격증명 설정을 확인하십시오.")
+        return db_client
+
+    def save_user_profile(self, key: str, value: str) -> str:
+        try:
+            self.db.collection('user_profiles').document(key).set({'value': value})
+            return f"기억 성공: {key} = {value}"
+        except Exception as e:
+            return f"기억 실패: {str(e)}"
+
+    def delete_user_profile(self, key: str) -> str:
+        try:
+            self.db.collection('user_profiles').document(key).delete()
+            return f"기억 삭제 성공: {key}"
+        except Exception as e:
+            return f"기억 삭제 실패: {str(e)}"
+
+    def get_all_user_profiles(self) -> dict:
+        try:
+            docs = self.db.collection('user_profiles').stream()
+            return {d.id: d.to_dict().get('value') for d in docs}
+        except Exception as e:
+            print(f"Error getting profiles from Firestore: {e}")
+            return {}
+
+    def add_notification(self, title: str, message: str):
+        try:
+            self.db.collection('notifications').add({
+                'title': title,
+                'message': message,
+                'read': 0,
+                'timestamp': datetime.datetime.now(datetime.timezone.utc)
+            })
+        except Exception as e:
+            print(f"Error adding notification to Firestore: {e}")
+
+    def get_unread_notifications(self) -> list:
+        try:
+            docs = self.db.collection('notifications').where('read', '==', 0).stream()
+            results = []
+            for d in docs:
+                data = d.to_dict()
+                results.append({
+                    "id": d.id,
+                    "title": data.get('title'),
+                    "message": data.get('message'),
+                    "timestamp": data.get('timestamp')
+                })
+            results.sort(key=lambda x: x['timestamp'] if x['timestamp'] else datetime.datetime.min)
+            for r in results:
+                ts = r["timestamp"]
+                r["timestamp"] = ts.astimezone().strftime("%Y-%m-%d %H:%M:%S") if ts else ""
+            return results
+        except Exception as e:
+            print(f"Error getting notifications from Firestore: {e}")
+            return []
+
+    def mark_notifications_as_read(self, ids: list):
+        if not ids:
+            return
+        try:
+            for doc_id in ids:
+                self.db.collection('notifications').document(str(doc_id)).update({'read': 1})
+        except Exception as e:
+            print(f"Error marking notifications read in Firestore: {e}")
+
+    def check_notification_exists_by_message_pattern(self, pattern: str) -> bool:
+        try:
+            event_id = pattern.replace('%', '')
+            docs = self.db.collection('notifications').stream()
+            for d in docs:
+                msg = d.to_dict().get('message', '')
+                if event_id in msg:
+                    return True
+            return False
+        except Exception:
+            return False
+
+    def save_chat_message(self, role: str, content: str):
+        try:
+            self.db.collection('messages').add({
+                'role': role,
+                'content': content,
+                'timestamp': datetime.datetime.now(datetime.timezone.utc)
+            })
+        except Exception as e:
+            print(f"Error saving chat message to Firestore: {e}")
+
+    def load_chat_history(self) -> list:
+        try:
+            docs = self.db.collection('messages').order_by('timestamp', direction=firestore.Query.DESCENDING).limit(10).stream()
+            results = []
+            for d in docs:
+                data = d.to_dict()
+                results.append({
+                    "role": data.get('role'),
+                    "parts": [data.get('content')]
+                })
+            results.reverse()
+            return results
+        except Exception as e:
+            print(f"Error loading chat history from Firestore: {e}")
+            return []
+
+    def clear_chat_history(self):
+        try:
+            docs = self.db.collection('messages').stream()
+            for d in docs:
+                d.reference.delete()
+        except Exception as e:
+            print(f"Error clearing chat history in Firestore: {e}")
+
+    def save_voice_profile(self, features: list, label: str) -> str:
+        try:
+            doc_ref = self.db.collection('voice_profiles').document()
+            doc_ref.set({
+                'features': json.dumps(features),
+                'label': label,
+                'timestamp': datetime.datetime.now(datetime.timezone.utc)
+            })
+            return doc_ref.id
+        except Exception as e:
+            print(f"Error saving voice profile to Firestore: {e}")
+            return "0"
+
+    def get_all_voice_profiles(self) -> list:
+        try:
+            docs = self.db.collection('voice_profiles').stream()
+            results = []
+            for d in docs:
+                data = d.to_dict()
+                ts = data.get('timestamp')
+                ts_str = ts.astimezone().strftime("%Y-%m-%d %H:%M:%S") if ts else ""
+                results.append({
+                    "id": d.id,
+                    "features": json.loads(data.get('features')),
+                    "label": data.get('label'),
+                    "timestamp": ts_str
+                })
+            results.sort(key=lambda x: x['timestamp'])
+            return results
+        except Exception as e:
+            print(f"Error getting voice profiles from Firestore: {e}")
+            return []
+
+    def delete_all_voice_profiles(self):
+        try:
+            docs = self.db.collection('voice_profiles').stream()
+            for d in docs:
+                d.reference.delete()
+        except Exception as e:
+            print(f"Error deleting voice profiles from Firestore: {e}")
+
+    def delete_voice_profile_by_id(self, profile_id):
+        try:
+            self.db.collection('voice_profiles').document(str(profile_id)).delete()
+        except Exception as e:
+            print(f"Error deleting voice profile from Firestore: {e}")
+
+    def delete_voice_profiles_by_label_like(self, pattern: str):
+        try:
+            import re
+            regex_pattern = pattern.replace('%', '.*')
+            rx = re.compile(regex_pattern)
+            docs = self.db.collection('voice_profiles').stream()
+            for d in docs:
+                label = d.to_dict().get('label', '')
+                if rx.match(label):
+                    d.reference.delete()
+        except Exception as e:
+            print(f"Error deleting voice profiles by pattern in Firestore: {e}")
+
+    def check_has_voice_profile(self) -> bool:
+        try:
+            docs = self.db.collection('voice_profiles').limit(1).stream()
+            return any(docs)
+        except Exception:
+            return False
+
+    def save_voice_setting(self, key: str, value: str):
+        try:
+            self.db.collection('voice_settings').document(key).set({'value': value})
+        except Exception as e:
+            print(f"Error saving voice setting to Firestore: {e}")
+
+    def get_voice_setting(self, key: str) -> str:
+        try:
+            doc = self.db.collection('voice_settings').document(key).get()
+            return doc.to_dict().get('value') if doc.exists else None
+        except Exception as e:
+            print(f"Error getting voice setting from Firestore: {e}")
+            return None
+
+    def delete_voice_setting(self, key: str):
+        try:
+            self.db.collection('voice_settings').document(key).delete()
+        except Exception as e:
+            print(f"Error deleting voice setting from Firestore: {e}")
+
+    def get_voice_status_info(self) -> dict:
+        try:
+            docs = self.db.collection('voice_profiles').stream()
+            profiles = [{"label": d.to_dict().get('label')} for d in docs]
+            total_count = len(profiles)
+            
+            if total_count == 0:
+                return {"registered": False, "total_count": 0, "base_count": 0, "append_count": 0, "auto_count": 0, "threshold": "0.0%"}
+                
+            base_count = sum(1 for p in profiles if p["label"] in ('normal', 'quiet', 'clear', 'distant', 'loud'))
+            append_count = sum(1 for p in profiles if p["label"] and p["label"].startswith("append_") and "_aug_" not in p["label"])
+            auto_count = sum(1 for p in profiles if p["label"] == 'auto_adapted')
+            
+            th_doc = self.db.collection('voice_settings').document('adaptive_threshold').get()
+            threshold_val = float(th_doc.to_dict().get('value')) if th_doc.exists else 0.78
+            threshold_str = f"{threshold_val * 100:.1f}%"
+            
+            return {
+                "registered": base_count >= 5 or total_count > 0,
+                "total_count": total_count,
+                "base_count": base_count,
+                "append_count": append_count,
+                "auto_count": auto_count,
+                "threshold": threshold_str
+            }
+        except Exception as e:
+            print(f"Error getting voice status from Firestore: {e}")
+            return {"registered": False, "total_count": 0, "base_count": 0, "append_count": 0, "auto_count": 0, "threshold": "0.0%"}
+
+    def save_consultation(self, client_name: str, structured_note: str, docs_url: str) -> str:
+        try:
+            self.db.collection('consultations').add({
+                'client_name': client_name,
+                'structured_note': structured_note,
+                'docs_url': docs_url,
+                'timestamp': datetime.datetime.now(datetime.timezone.utc)
+            })
+            return "상담 일지가 성공적으로 데이터베이스에 저장되었습니다."
+        except Exception as e:
+            return f"DB 저장 실패: {str(e)}"
+
+    def get_today_consultations(self) -> list:
+        try:
+            docs = self.db.collection('consultations').stream()
+            results = []
+            today_date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+            for d in docs:
+                data = d.to_dict()
+                ts = data.get('timestamp')
+                if not ts:
+                    continue
+                local_ts = ts.astimezone()
+                local_date = local_ts.strftime("%Y-%m-%d")
+                if local_date == today_date_str:
+                    time_only = local_ts.strftime("%H:%M")
+                    results.append({
+                        "client_name": data.get('client_name'),
+                        "structured_note": data.get('structured_note'),
+                        "docs_url": data.get('docs_url'),
+                        "time": time_only,
+                        "timestamp": local_ts
+                    })
+            results.sort(key=lambda x: x['timestamp'], reverse=True)
+            return results
+        except Exception as e:
+            print(f"Error getting today consultations from Firestore: {e}")
+            return []
+
+    def save_semantic_memory(self, query: str, response: str, embedding: list):
+        try:
+            self.db.collection('semantic_memories').add({
+                'query': query,
+                'response': response,
+                'embedding': json.dumps(embedding),
+                'timestamp': datetime.datetime.now(datetime.timezone.utc)
+            })
+            print(f"[Semantic Memory] Saved conversation turn to Firestore.")
+        except Exception as e:
+            print(f"[Semantic Memory Save Error] {e}")
+
+    def get_all_semantic_memories(self) -> list:
+        try:
+            docs = self.db.collection('semantic_memories').stream()
+            results = []
+            for d in docs:
+                data = d.to_dict()
+                ts = data.get('timestamp')
+                ts_str = ts.astimezone().strftime("%Y-%m-%d %H:%M:%S") if ts else ""
+                results.append({
+                    "query": data.get('query'),
+                    "response": data.get('response'),
+                    "embedding": json.loads(data.get('embedding')),
+                    "timestamp": ts_str
+                })
+            return results
+        except Exception as e:
+            print(f"Error getting semantic memories from Firestore: {e}")
+            return []
+
+
+# 데이터베이스 어댑터 생성
+if DB_TYPE == "firebase":
+    db_adapter = FirestoreAdapter()
+else:
+    db_adapter = SQLiteAdapter()
 
 
 # .env 파일 로드
@@ -27,60 +759,70 @@ load_dotenv()
 
 # 로컬 DB 초기화 (장기 기억 모듈 및 사용자 프로필 장기 기억 테이블)
 def init_db():
-    conn = sqlite3.connect("jarvis_memory.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            role TEXT,
-            content TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS user_profiles (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS notifications (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT,
-            message TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            read INTEGER DEFAULT 0
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS voice_profiles (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            features TEXT,
-            label TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    try:
-        cursor.execute("ALTER TABLE voice_profiles ADD COLUMN label TEXT")
-    except Exception:
-        pass
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS voice_settings (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS consultations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            client_name TEXT,
-            structured_note TEXT,
-            docs_url TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.commit()
-    conn.close()
+    if DB_TYPE == "sqlite":
+        conn = sqlite3.connect("jarvis_memory.db")
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                role TEXT,
+                content TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT,
+                message TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                read INTEGER DEFAULT 0
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS voice_profiles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                features TEXT,
+                label TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        try:
+            cursor.execute("ALTER TABLE voice_profiles ADD COLUMN label TEXT")
+        except Exception:
+            pass
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS voice_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS consultations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_name TEXT,
+                structured_note TEXT,
+                docs_url TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS semantic_memories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                query TEXT,
+                response TEXT,
+                embedding TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+        conn.close()
 
 init_db()
 
@@ -892,11 +1634,7 @@ def delete_calendar_event(event_id: str, **kwargs) -> str:
 def clear_chat_history() -> str:
     """사용자가 대화 기록을 초기화하거나 기억을 지워달라고 요청하면 이 함수를 호출하여 SQLite DB의 대화 기억을 완전히 삭제합니다."""
     try:
-        conn = sqlite3.connect("jarvis_memory.db")
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM messages")
-        conn.commit()
-        conn.close()
+        db_adapter.clear_chat_history()
         return "대화 기록과 기억이 완전히 초기화되었습니다."
     except Exception as e:
         return f"기억 초기화 중 오류가 발생했습니다: {str(e)}"
@@ -1202,6 +1940,59 @@ def extract_mfcc_frames(audio_bytes: bytes) -> np.ndarray:
     return feat_frames
 
 
+def augment_mfcc_features(features: np.ndarray) -> list:
+    """주어진 MFCC 특징 행렬(shape: (num_frames, 40))로부터
+    다양한 환경 변화를 시뮬레이션한 증강 특징 행렬 리스트를 생성합니다.
+    생성 형태: [fast_speech, slow_speech, noisy_speech, masked_speech]
+    """
+    if features is None or len(features) == 0:
+        return []
+    
+    aug_list = []
+    num_frames, num_coefs = features.shape
+
+    # 1. 빠른 발화 (Speed Up - 약 90% 프레임 다운샘플링)
+    try:
+        fast_len = max(2, int(num_frames * 0.9))
+        indices_fast = np.linspace(0, num_frames - 1, fast_len, dtype=int)
+        features_fast = features[indices_fast]
+        aug_list.append(("fast", features_fast))
+    except Exception as e:
+        print(f"[Augmentation] Failed to generate fast speech: {e}")
+
+    # 2. 느린 발화 (Slow Down - 약 110% 프레임 업샘플링)
+    try:
+        slow_len = int(num_frames * 1.1)
+        indices_slow = np.linspace(0, num_frames - 1, slow_len, dtype=int)
+        features_slow = features[indices_slow]
+        aug_list.append(("slow", features_slow))
+    except Exception as e:
+        print(f"[Augmentation] Failed to generate slow speech: {e}")
+
+    # 3. 노이즈 추가 (Gaussian Noise - 마이크 지직거림 및 백그라운드 소음)
+    try:
+        # MFCC 값들의 대략적인 스케일에 맞춰 미세 잡음 추가
+        noise = np.random.normal(0, 0.05, features.shape)
+        features_noisy = features + noise
+        aug_list.append(("noisy", features_noisy))
+    except Exception as e:
+        print(f"[Augmentation] Failed to generate noisy speech: {e}")
+
+    # 4. 주파수 마스킹 (SpecAugment 일부 구현 - 특정 주파수 대역 감쇄)
+    try:
+        features_masked = features.copy()
+        # 40개 채널 중 무작위 2~3개 연속 채널을 해당 프레임 평균값으로 감쇄
+        mask_width = np.random.randint(2, 4)
+        mask_start = np.random.randint(0, num_coefs - mask_width)
+        mean_val = np.mean(features)
+        features_masked[:, mask_start:mask_start + mask_width] = mean_val
+        aug_list.append(("masked", features_masked))
+    except Exception as e:
+        print(f"[Augmentation] Failed to generate masked speech: {e}")
+
+    return aug_list
+
+
 def calculate_dtw_distance(s1: np.ndarray, s2: np.ndarray) -> float:
     """두 MFCC 프레임 시퀀스(2차원 배열) 사이의 DTW(Dynamic Time Warping) 거리를 계산합니다.
     s1: (N, D), s2: (M, D)
@@ -1381,7 +2172,7 @@ def analyze_voice_emotion(audio_bytes: bytes) -> dict:
 
 def calculate_voice_similarity(features1: np.ndarray, features2: np.ndarray) -> float:
     """80차원 1차원 벡터 또는 2차원 프레임 시퀀스 간의 유사도를 계산합니다.
-    - 2차원 시퀀스인 경우: DTW(Dynamic Time Warping) 거리를 기반으로 유사도 산출
+    - 2차원 시퀀스인 경우: DTW(Dynamic Time Warping) 거리 및 평균 음색(Timbre) 기반 앙상블 유사도 산출
     - 1차원 벡터인 경우: 코사인 유사도 70% + 유클리드 거리 30% 앙상블 유사도 산출
     """
     if features1 is None or features2 is None:
@@ -1392,10 +2183,30 @@ def calculate_voice_similarity(features1: np.ndarray, features2: np.ndarray) -> 
         return 0.0
         
     if features1.ndim == 2:
+        # 1. 텍스트 종속형(Text-Dependent) DTW 유사도 산출
         dtw_dist = calculate_dtw_distance(features1, features2)
-        # dtw_dist는 코사인 거리를 경로 가중치로 나눈 값이므로 보통 0~1 사이에 속함
-        # 1 / (1 + dist) 형태로 유사도 점수 산출
-        return float(1.0 / (1.0 + dtw_dist))
+        dtw_sim = float(1.0 / (1.0 + dtw_dist))
+        
+        # 2. 텍스트 독립형(Text-Independent) 음색(Timbre) 유사도 산출
+        # 시간축(axis=0)으로 평균을 내어 발음 차이에 따른 시간 정렬 편차를 없애고 사용자의 고유 성대/성문 스펙트럼 특성만 비교
+        mean_feat1 = np.mean(features1, axis=0)
+        mean_feat2 = np.mean(features2, axis=0)
+        
+        norm1 = np.linalg.norm(mean_feat1)
+        norm2 = np.linalg.norm(mean_feat2)
+        if norm1 == 0 or norm2 == 0:
+            cosine_score = 0.0
+        else:
+            raw_cosine = np.dot(mean_feat1, mean_feat2) / (norm1 * norm2)
+            cosine_score = float((raw_cosine + 1.0) / 2.0)
+            
+        euclidean_dist = np.linalg.norm(mean_feat1 - mean_feat2)
+        euclidean_score = float(1.0 / (1.0 + euclidean_dist / (len(mean_feat1) ** 0.5)))
+        
+        timbre_sim = float(0.7 * cosine_score + 0.3 * euclidean_score)
+        
+        # 등록된 5개 문장이 아닌 다른 발화 내용을 말하더라도 음색 유사도를 통해 본인임을 식별할 수 있도록 최댓값을 리턴합니다.
+        return max(dtw_sim, timbre_sim)
         
     # ── 1차원 벡터 매칭 (기존 레거시 하위 호환) ──
     if len(features1) != len(features2):
@@ -1427,12 +2238,10 @@ def save_user_profile(key: str, value: str, **kwargs) -> str:
         value: 저장할 구체적인 설정값 또는 텍스트 내용
     """
     try:
-        conn = sqlite3.connect("jarvis_memory.db")
-        cursor = conn.cursor()
-        cursor.execute("INSERT OR REPLACE INTO user_profiles (key, value) VALUES (?, ?)", (key, value))
-        conn.commit()
-        conn.close()
-        return f"사용자 프로필 정보 '{key}'를 성공적으로 기억했습니다: {value}"
+        res = db_adapter.save_user_profile(key, value)
+        if "성공" in res:
+            return f"사용자 프로필 정보 '{key}'를 성공적으로 기억했습니다: {value}"
+        return res
     except Exception as e:
         return f"프로필 정보를 기억하는 도중 오류가 발생했습니다: {str(e)}"
 
@@ -1443,28 +2252,17 @@ def delete_user_profile(key: str) -> str:
     - key: 삭제하고자 하는 프로필의 고유 키워드 (예: 'diet_rule', 'favorite_beverage')
     """
     try:
-        conn = sqlite3.connect("jarvis_memory.db")
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM user_profiles WHERE key = ?", (key,))
-        conn.commit()
-        conn.close()
-        return f"사용자 프로필에서 '{key}' 정보를 성공적으로 삭제했습니다."
+        res = db_adapter.delete_user_profile(key)
+        if "성공" in res:
+            return f"사용자 프로필에서 '{key}' 정보를 성공적으로 삭제했습니다."
+        return res
     except Exception as e:
         return f"프로필 정보를 삭제하는 도중 오류가 발생했습니다: {str(e)}"
 
 
 def get_all_user_profiles() -> dict:
     """DB에 저장된 모든 사용자 프로필 목록을 딕셔너리로 반환합니다."""
-    try:
-        conn = sqlite3.connect("jarvis_memory.db")
-        cursor = conn.cursor()
-        cursor.execute("SELECT key, value FROM user_profiles")
-        rows = cursor.fetchall()
-        conn.close()
-        return {row[0]: row[1] for row in rows}
-    except Exception as e:
-        print(f"Error reading user profiles: {e}")
-        return {}
+    return db_adapter.get_all_user_profiles()
 
 
 def read_drive_file_content(file_id: str) -> str:
@@ -1562,282 +2360,102 @@ def get_tts_text(text: str) -> str:
     # 기본 정제: 마크다운 기호 및 특수문자 제거
     clean_text = text.replace("*", " ").replace("_", " ").replace("`", " ").replace("#", " ").replace("~", " ")
     
-    # 300자 미만이면 요약 없이 반환
+    # 300자 미만인 경우 그대로 정제된 텍스트 반환
     if len(clean_text) < 300:
         return clean_text
         
     try:
-        # Gemini API 키 확인
-        if not GEMINI_API_KEY:
-            return clean_text[:250] + "..."
-            
+        # 300자 이상인 경우 Gemini API를 사용해 150~250자 내외의 정중한 구어체로 요약본 생성
         summary_model = genai.GenerativeModel("models/gemini-2.5-flash")
-        prompt = f"""
-다음은 사용자에게 화면으로 보여주는 긴 보고서 또는 답변입니다.
-이 내용을 음성 비서인 자비스(정중하고 격식 있는 남성 비서 톤)가 귀로 듣는 사용자에게 음성으로 읽어주려고 합니다.
-
-[작성 지침]
-1. 전체 내용을 읽지 말고, 현재 진행된 작업과 최종 핵심 결과 위주로 약 150~250자 내외의 자연스럽고 정중한 한국어 구어체(예: "~했습니다", "~완료했습니다")로 요약해 주십시오.
-2. 글머리 기호, 대괄호, 괄호, 특수기호 등은 말로 읽기에 방해가 되므로 절대 포함하지 마십시오.
-3. 단계별 로그(예: 1단계, 2단계 등)가 길게 나열되어 있다면, 이를 하나하나 언급하지 말고 "필요한 모든 단계와 최종 발송까지 완료했다"는 식으로 종합하여 매끄럽게 흐름을 정리하십시오.
-
-[답변 원본]
-{text}
-"""
+        prompt = (
+            "다음은 인공지능 비서가 사용자에게 소리 내어 읽어줄 음성 텍스트입니다. "
+            "이 내용을 듣기 편하고 정중한 구어체(존댓말)로 요약해 주세요. "
+            "반드시 150자에서 250자 사이로 요약하고, 마크다운 기호나 줄바꿈은 최소화해 주세요.\n\n"
+            f"텍스트:\n{clean_text}"
+        )
         response = summary_model.generate_content(prompt)
-        summary_text = response.text.strip()
-        if summary_text:
-            # 요약본에서도 마크다운 기호 2차 정제
-            return summary_text.replace("*", " ").replace("_", " ").replace("`", " ").replace("#", " ").replace("~", " ")
+        if response and response.text:
+            return response.text.replace("*", " ").replace("_", " ").replace("`", " ").replace("#", " ").replace("~", " ").strip()
     except Exception as e:
-        print("[get_tts_text] Gemini summary generation failed:", e)
+        print(f"[TTS Summary Error] Failed to generate summary using Gemini API: {e}")
         
-    # 요약 실패 시 앞부분만 잘라서 전달
+    # 예외 발생 시 앞부분 일부만 잘라서 반환
     return clean_text[:250] + "..."
 
 
-def synthesize_speech_elevenlabs(text: str) -> str:
-    """ElevenLabs API를 사용하여 한국어 텍스트를 고품질 남성 성우 보이스 MP3로 합성하고 base64 문자열로 반환합니다."""
-    if not ELEVENLABS_API_KEY or not ELEVENLABS_VOICE_ID:
-        return None
+def save_semantic_memory(query: str, response: str):
+    """사용자 발화 및 자비스 답변을 임베딩하여 벡터 스토어에 장기 기억으로 누적합니다."""
+    if len(query.strip()) < 5:
+        return
+        
+    emb = get_embedding(query)
+    if emb is None:
+        return
+        
     try:
-        import urllib.request
-        import json
-        import base64
-        
-        # HTML 태그나 특수 마크다운 등 일부 기호 정제
-        clean_text = text.replace("*", " ").replace("_", " ").replace("`", " ").replace("#", " ")
-        
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
-        headers = {
-            "Content-Type": "application/json",
-            "xi-api-key": ELEVENLABS_API_KEY
-        }
-        body = {
-            "text": clean_text,
-            "model_id": "eleven_multilingual_v2",
-            "voice_settings": {
-                "stability": 0.5,
-                "similarity_boost": 0.75
-            }
-        }
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(body).encode("utf-8"),
-            headers=headers,
-            method="POST"
-        )
-        with urllib.request.urlopen(req) as response:
-            audio_bytes = response.read()
-            return base64.b64encode(audio_bytes).decode("utf-8")
+        db_adapter.save_semantic_memory(query, response, emb)
+        print(f"[Semantic Memory] Saved conversation turn to vector store.")
     except Exception as e:
-        print("ElevenLabs TTS Error:", e)
-        return None
+        print(f"[Semantic Memory Save Error] {e}")
 
 
-def check_briefing_triggered_today() -> bool:
-    """오늘 이미 아침 브리핑이 실행되었는지 확인합니다."""
-    profiles = get_all_user_profiles()
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    return profiles.get("last_briefed_date") == today_str
-
-
-def record_briefing_triggered_today():
-    """오늘 브리핑이 실행되었음을 기록합니다."""
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    save_user_profile("last_briefed_date", today_str)
-
-
-def generate_daily_briefing_text() -> str:
-    """오늘 날씨, 일정, 이메일을 바탕으로 자비스 아침 브리핑 스크립트를 작성합니다."""
-    profiles = get_all_user_profiles()
-    user_location = profiles.get("location", "Seoul")
-    
-    # 1. 날씨 정보 가져오기
+def retrieve_semantic_memories(user_query: str, limit: int = 3) -> list:
+    """사용자 질문과 가장 유사한 과거 대화 기록을 검색합니다. (코사인 유사도 기반)"""
+    if len(user_query.strip()) < 4:
+        return []
+        
+    query_emb = get_embedding(user_query)
+    if query_emb is None:
+        return []
+        
     try:
-        weather_info = get_weather(user_location, "today")
-    except Exception as e:
-        weather_info = "날씨 정보를 가져오지 못했습니다."
-        
-    # 2. 일정 정보 가져오기
-    events_str = ""
-    try:
-        events = get_today_calendar()
-        if isinstance(events, dict) and "message" in events:
-            events_str = events["message"]
-        elif isinstance(events, list):
-            if not events:
-                events_str = "오늘 예정된 일정이 없습니다."
-            else:
-                events_list = []
-                for ev in events:
-                    title = ev.get("title", "(제목 없음)")
-                    start = ev.get("start", "")
-                    if "T" in start:
-                        time_part = start.split("T")[1][:5]
-                        events_list.append(f"{time_part}에 '{title}'")
-                    else:
-                        events_list.append(f"종일 일정인 '{title}'")
-                events_str = "오늘 예정된 일정은 " + ", ".join(events_list) + " 등이 있습니다."
-        else:
-            events_str = "오늘 예정된 일정이 없습니다."
-    except Exception as e:
-        events_str = "오늘 일정을 불러오지 못했습니다."
-        
-    # 3. 읽지 않은 Gmail 가져오기
-    emails_str = ""
-    try:
-        emails = get_unread_emails()
-        if isinstance(emails, dict):
-            if "message" in emails:
-                emails_str = emails["message"]
-            elif "error" in emails:
-                emails_str = "읽지 않은 새 이메일을 확인하지 못했습니다."
-        elif isinstance(emails, list):
-            if not emails:
-                emails_str = "읽지 않은 새로운 메일은 없습니다."
-            else:
-                emails_list = []
-                for mail in emails:
-                    sender = mail.get("from", "(보낸 사람 없음)")
-                    subject = mail.get("subject", "(제목 없음)")
-                    emails_list.append(f"보낸사람 {sender} 님의 메일 {subject}")
-                emails_str = f"읽지 않은 새 메일은 총 {len(emails)}건이 있으며, " + ", ".join(emails_list[:3]) + " 등이 있습니다."
-        else:
-            emails_str = "읽지 않은 새로운 메일은 없습니다."
-    except Exception as e:
-        emails_str = "이메일 정보를 확인하지 못했습니다."
-        
-    # 3.5. 사용자 장기 프로필에서 분석/추론용 데이터 추출
-    profiles_context = ""
-    if profiles:
-        useful_profiles = {k: v for k, v in profiles.items() if k not in ["location", "last_briefed_date"]}
-        if useful_profiles:
-            profiles_context = "\n".join([f"- {k}: {v}" for k, v in useful_profiles.items()])
+        memories = db_adapter.get_all_semantic_memories()
+        if not memories:
+            return []
             
-    profiles_context_str = profiles_context if profiles_context else "(현재 기억된 특별한 취향, 생활 습관, 결심 또는 미완료 과제 정보 없음)"
+        query_vector = np.array(query_emb)
+        query_norm = np.linalg.norm(query_vector)
+        if query_norm == 0:
+            return []
+            
+        results = []
+        for mem in memories:
+            q = mem.get("query")
+            r = mem.get("response")
+            emb_list = mem.get("embedding")
+            ts = mem.get("timestamp")
+            if not emb_list:
+                continue
+            emb_vector = np.array(emb_list)
+            emb_norm = np.linalg.norm(emb_vector)
+            if emb_norm == 0:
+                continue
+                
+            sim = np.dot(query_vector, emb_vector) / (query_norm * emb_norm)
+            
+            # 타임스탬프 가공 (YYYY-MM-DD 형식)
+            date_str = ts.split(" ")[0] if ts else ""
+            
+            results.append((sim, f"[{date_str}] User: {q} | Jarvis: {r}"))
+            
+        # 코사인 유사도 0.65 이상 매칭되는 것들만 수집
+        results = [item for item in results if item[0] >= 0.65]
+        results.sort(key=lambda x: x[0], reverse=True)
         
-    # 4. 제미나이로 스크립트 작성
-    user_name = profiles.get("user_name", "재진님")
-    prompt = f"""너는 개인 비서 자비스(JARVIS)야. 사용자의 오늘 아침 브리핑 스크립트를 작성해 줘.
-적극적으로 실시간 데이터(날씨, 일정, 이메일) 및 사용자의 장기 기억 프로필을 조화롭게 활용해라.
-
-[사용자 정보]
-이름: {user_name}
-
-[오늘 날씨 정보]
-{weather_info}
-
-[오늘 일정 정보]
-{events_str}
-
-[읽지 않은 최신 메일 정보]
-{emails_str}
-
-[기억된 사용자 추가 프로필, 습관 및 미완료 관심사/과제 목록]
-{profiles_context_str}
-
-작성 지침:
-1. 아침 인사로 시작하여, 날씨, 일정, 메일 요약을 자연스럽게 연결해 줘.
-2. 자비스 특유의 정중하고 격식 있으며 지적인 분위기(남성 비서 톤)로 대답해라.
-3. 글머리 기호, 대괄호, 코드 블록, 마크다운 특수 기호(*, _, # 등)는 절대 사용하지 말고, 실제 사람이 귀에 대고 말하는 자연스러운 한국어 구어체(예: "~입니다", "~하셨습니다", "~할 예정입니다")로만 작성해라.
-4. 요약은 매우 간결하고 명확하게 핵심 위주로 전달하여 듣기 편하도록 구성해라.
-5. 제공된 '기억된 사용자 추가 프로필, 습관 및 미완료 관심사/과제 목록'을 면밀히 분석하여 어제 언급되었던 미완료 과제, 결심, 다짐, 습관 등이 있다면 이를 브리핑에 자연스럽고 영리하게 포함하십시오. 예컨대 "어제 말씀하셨던 독서 계획은 잘 이루셨는지요?" 혹은 "커피를 줄이시기로 한 다짐을 자비스도 함께 응원하겠습니다" 등 초개인화된 추론 리마인드 멘트를 브리핑 스크립트에 녹여내어 비서의 지능을 부각시키십시오.
-"""
-    try:
-        briefing_model = genai.GenerativeModel(
-            model_name="models/gemini-2.5-flash",
-            system_instruction="너는 사용자의 개인 비서 자비스(JARVIS)야. 아침 브리핑을 격식 있고 부드러운 한국어 구어체로 전해주는 역할을 한다."
-        )
-        response = briefing_model.generate_content(prompt)
-        briefing_text = response.text.strip()
+        return [text for sim, text in results[:limit]]
     except Exception as e:
-        briefing_text = f"좋은 아침입니다, {user_name}. 자비스 아침 브리핑을 준비했습니다. 오늘 {weather_info} 또한, {events_str} {emails_str} 오늘도 성공적인 하루 보내시길 바랍니다."
-        
-    return briefing_text
-
-
-def synthesize_speech(text: str) -> str:
-    """구글 클라우드 Text-to-Speech API를 사용하여 텍스트를 고품질 남성 음성 MP3로 변환하고 base64 문자열로 반환합니다."""
-    import os
-    api_key = os.getenv("GCP_API_KEY") or GEMINI_API_KEY
-    if not api_key:
-        return None
-    try:
-        import urllib.request
-        import json
-        
-        # HTML 태그나 특수 마크다운 등 일부 기호 정제
-        clean_text = text.replace("*", " ").replace("_", " ").replace("`", " ").replace("#", " ")
-        
-        url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={api_key}"
-        headers = {
-            "Content-Type": "application/json"
-        }
-        body = {
-            "input": {"text": clean_text},
-            "voice": {
-                "languageCode": "ko-KR",
-                "name": "ko-KR-Neural2-C",  # 최신 프리미엄 남성 목소리
-                "ssmlGender": "MALE"
-            },
-            "audioConfig": {
-                "audioEncoding": "MP3",
-                "speakingRate": 1.3,  # 1.3배속
-                "pitch": -0.5         # 자비스 중저음 톤 (발음 또렷하게 조절)
-            }
-        }
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(body).encode("utf-8"),
-            headers=headers,
-            method="POST"
-        )
-        with urllib.request.urlopen(req) as response:
-            res_body = json.loads(response.read().decode("utf-8"))
-            return res_body.get("audioContent")
-    except Exception as e:
-        print("Google Cloud TTS Error:", e)
-        return None
-
+        print(f"[Semantic Memory Retrieval Error] {e}")
+        return []
 
 
 def load_chat_history():
     """DB에서 최근 10개의 대화 내용을 조회하여 Gemini history 포맷으로 변환합니다."""
-    try:
-        conn = sqlite3.connect("jarvis_memory.db")
-        cursor = conn.cursor()
-        # 최근 10개의 대화를 가져와서 시간순(ID 오름차순)으로 반환
-        cursor.execute("""
-            SELECT role, content FROM (
-                SELECT id, role, content FROM messages ORDER BY id DESC LIMIT 10
-            ) ORDER BY id ASC
-        """)
-        rows = cursor.fetchall()
-        conn.close()
-        
-        history = []
-        for role, content in rows:
-            history.append({
-                "role": role,
-                "parts": [content]
-            })
-        return history
-    except Exception as e:
-        print(f"Error loading chat history from DB: {e}")
-        return []
+    return db_adapter.load_chat_history()
 
 
 def save_chat_message(role: str, content: str):
     """대화 메시지를 DB에 저장합니다."""
-    try:
-        conn = sqlite3.connect("jarvis_memory.db")
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO messages (role, content) VALUES (?, ?)", (role, content))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"Error saving chat message to DB: {e}")
+    db_adapter.save_chat_message(role, content)
 
 
 class ChatMessageRequest(BaseModel):
@@ -1857,19 +2475,12 @@ def execute_ai_chat(user_message: str, emotion_data: dict = None) -> dict:
     # 1. 미읽음 선제적 알림 조회 (능동형 트리거)
     proactive_alerts = []
     try:
-        conn = sqlite3.connect("jarvis_memory.db")
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, title, message FROM notifications WHERE read = 0 ORDER BY id ASC")
-        rows = cursor.fetchall()
-        if rows:
-            for r in rows:
-                proactive_alerts.append(f"[{r[1]}] {r[2]}")
-            # 조회한 알림 즉시 읽음 처리
-            ids = [r[0] for r in rows]
-            placeholders = ",".join(["?"] * len(ids))
-            cursor.execute(f"UPDATE notifications SET read = 1 WHERE id IN ({placeholders})", ids)
-            conn.commit()
-        conn.close()
+        unread_notifs = db_adapter.get_unread_notifications()
+        if unread_notifs:
+            for notif in unread_notifs:
+                proactive_alerts.append(f"[{notif['title']}] {notif['message']}")
+            ids = [notif['id'] for notif in unread_notifs]
+            db_adapter.mark_notifications_as_read(ids)
     except Exception as e:
         print("[Proactive Trigger] Notifications query failed:", e)
         
@@ -1899,6 +2510,9 @@ def execute_ai_chat(user_message: str, emotion_data: dict = None) -> dict:
                 # 대화 결과 기록
                 save_chat_message("user", user_message)
                 save_chat_message("model", result_report)
+                
+                # 장기 기억 저장
+                save_semantic_memory(user_message, result_report)
                 
                 # 음성 합성
                 audio_content = synthesize_speech_elevenlabs(get_tts_text(result_report))
@@ -1944,6 +2558,20 @@ def execute_ai_chat(user_message: str, emotion_data: dict = None) -> dict:
             profiles_str = "\n".join([f"- {k}: {v}" for k, v in profiles.items()])
         else:
             profiles_str = "(현재 기억된 사용자 프로필 정보 없음)"
+            
+        # 1-1. 세만틱 장기 메모리 조회
+        retrieved_memories = retrieve_semantic_memories(user_message, limit=3)
+        if retrieved_memories:
+            memories_bullet = "\n".join([f"- {m}" for m in retrieved_memories])
+            semantic_mem_str = (
+                f"\n\n[과거 대화 기억 정보 (RECALLED MEMORIES)]\n"
+                f"현재 사용자의 대화 흐름과 관련하여 연관된 과거 대화 내용들입니다. "
+                f"사용자가 과거 일이나 정보에 대해 물어보거나 모호하게 지칭할 경우, "
+                f"아래의 과거 대화를 기반으로 기억하고 있는 것처럼 똑똑하고 자연스럽게 답변에 활용하십시오:\n"
+                f"{memories_bullet}"
+            )
+        else:
+            semantic_mem_str = ""
             
         # 2. 동적 시스템 명령 생성 (장기 프로필 인젝션 및 RAG 자동 학습 구문 강화)
         base_instruction = (
@@ -2015,6 +2643,7 @@ def execute_ai_chat(user_message: str, emotion_data: dict = None) -> dict:
             f"{base_instruction}\n\n"
             f"[기억된 사용자 프로필 정보 (영구 기억)]\n"
             f"{profiles_str}"
+            f"{semantic_mem_str}"
             f"{proactive_instruction}"
             f"{emotion_instruction}"
         )
@@ -2096,6 +2725,9 @@ def execute_ai_chat(user_message: str, emotion_data: dict = None) -> dict:
         save_chat_message("user", user_message)
         save_chat_message("model", ai_response)
         
+        # 7-1. 세만틱 장기 메모리 저장 (RAG 학습)
+        save_semantic_memory(user_message, ai_response)
+        
         # 8. ElevenLabs 또는 구글 클라우드 TTS를 사용해 고품질 음성 데이터 합성
         audio_content = synthesize_speech_elevenlabs(get_tts_text(ai_response))
         if not audio_content:
@@ -2121,11 +2753,30 @@ def ai_chat(payload: ChatMessageRequest):
     return execute_ai_chat(payload.message)
 
 
+def update_voice_lock_threshold():
+    """DB에 저장된 목소리 프로필 데이터를 기반으로 동적 임계치(Adaptive Threshold)를 산출하여 저장합니다."""
+    rows = db_adapter.get_all_voice_profiles()
+    filtered_rows = [r for r in rows if r.get('label') and "_aug_" not in r.get('label')]
+    if len(filtered_rows) >= 2:
+        all_feats = [np.array(r['features']) for r in filtered_rows]
+        pair_sims = []
+        for i in range(len(all_feats)):
+            for j in range(i + 1, len(all_feats)):
+                sim = calculate_voice_similarity(all_feats[i], all_feats[j])
+                pair_sims.append(sim)
+                print(f"[Voice Adaptive Threshold] Sim ({filtered_rows[i]['label']} vs {filtered_rows[j]['label']}): {sim*100:.1f}%")
+        
+        if pair_sims:
+            adaptive_threshold = max(0.68, min(pair_sims) * 0.88)
+            adaptive_threshold = min(0.82, adaptive_threshold)
+            db_adapter.save_voice_setting("adaptive_threshold", str(adaptive_threshold))
+            print(f"[Voice Adaptive Threshold] Recalculated and set to: {adaptive_threshold*100:.1f}%")
+
+
 @app.post("/api/voice/register")
-async def register_voice(file: UploadFile = File(...), label: str = "normal"):
-    """사용자 음성을 분석하여 2차원 MFCC 특징 시퀀스를 추출한 뒤 DB에 등록합니다.
-    label: 'normal' | 'quiet' | 'clear' | 'distant' | 'loud'
-    'loud' 등록 완료 시 5개 템플릿 간 적응형 임계값을 자동 계산하여 저장합니다.
+async def register_voice(file: UploadFile = File(...), label: str = "normal", append: bool = False):
+    """음성을 분석하여 2차원 MFCC 특징 시퀀스를 추출해 DB에 등록합니다.
+    label: 'normal' | 'quiet' | 'clear' | 'distant' | 'loud' | 'append'
     """
     try:
         audio_bytes = await file.read()
@@ -2133,65 +2784,38 @@ async def register_voice(file: UploadFile = File(...), label: str = "normal"):
         if features is None or len(features) == 0:
             raise ValueError("Failed to extract MFCC frames or audio is too short")
 
-        conn = sqlite3.connect("jarvis_memory.db")
-        cursor = conn.cursor()
+        if label == "normal" and not append:
+            db_adapter.delete_all_voice_profiles()
+            db_adapter.delete_voice_setting("adaptive_threshold")
 
-        # normal 등록 시 기존 프로필 전체 초기화 (구 버전 13차원 포함)
-        if label == "normal":
-            cursor.execute("DELETE FROM voice_profiles")
-            cursor.execute("DELETE FROM voice_settings WHERE key='adaptive_threshold'")
+        if append:
+            import time as time_lib
+            db_label = f"append_{int(time_lib.time())}"
+        else:
+            db_label = label
 
-        cursor.execute("INSERT INTO voice_profiles (features, label) VALUES (?, ?)",
-                       (json.dumps(features.tolist()), label))
-        conn.commit()
+        main_id = db_adapter.save_voice_profile(features.tolist(), db_label)
 
-        # loud 등록 완료 = 5단계 모두 완료 → 적응형 임계값 계산
-        if label == "loud":
-            cursor.execute("SELECT features, label FROM voice_profiles")
-            rows = cursor.fetchall()
-            if len(rows) >= 5:
-                all_feats = [np.array(json.loads(r[0])) for r in rows]
-                # 모든 템플릿 쌍 간의 유사도 계산
-                pair_sims = []
-                for i in range(len(all_feats)):
-                    for j in range(i + 1, len(all_feats)):
-                        sim = calculate_voice_similarity(all_feats[i], all_feats[j])
-                        pair_sims.append(sim)
-                        print(f"[Voice Register] Template similarity ({rows[i][1]} vs {rows[j][1]}): {sim*100:.1f}%")
+        augmented_variants = augment_mfcc_features(features)
+        for aug_type, aug_features in augmented_variants:
+            db_adapter.save_voice_profile(aug_features.tolist(), f"{db_label}_aug_{main_id}_{aug_type}")
 
-                if pair_sims:
-                    # 5개 상황이므로 편차가 더 커질 수 있으므로, 적합한 adaptive_threshold 설정
-                    # 최솟값의 88% 또는 최소 0.68 정도로 보수적으로 설정하되, 너무 낮거나 높지 않게 제한
-                    adaptive_threshold = max(0.68, min(pair_sims) * 0.88)
-                    # 0.82 상한선을 두어 너무 엄격하지 않도록 조율
-                    adaptive_threshold = min(0.82, adaptive_threshold)
-                    cursor.execute(
-                        "INSERT OR REPLACE INTO voice_settings (key, value) VALUES (?, ?)",
-                        ("adaptive_threshold", str(adaptive_threshold))
-                    )
-                    conn.commit()
-                    print(f"[Voice Register] Adaptive threshold set to: {adaptive_threshold*100:.1f}%")
-
-        conn.close()
-        return {"status": "success", "message": f"'{label}' 목소리 성문 등록이 성공적으로 완료되었습니다."}
+        if label == "loud" or append:
+            update_voice_lock_threshold()
+            
+        success_msg = f"'{db_label}' 목소리 성문(증강 {len(augmented_variants)}개 포함)이 등록 완료되었습니다."
+        if append:
+            success_msg = f"추가 목소리 성문(증강 {len(augmented_variants)}개 포함)이 등록 완료되었습니다."
+            
+        return {"status": "success", "message": success_msg}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"목소리 등록 실패: {str(e)}")
 
 
-# --- 실시간 능동 비서 모니터링 모듈 (Gmail 및 캘린더 감시) ---
-
-# 핫스팟 및 전력 스마트 플러그 모니터링을 위한 헬퍼 함수
 def check_hotspot_connection() -> str:
-    """윈도우 환경에서 Wi-Fi SSID를 쿼리하여 모바일 핫스팟에 연결되어 있는지 감지합니다.
-    (실제 SSID 스캔과 함께, 테스트 편의를 위해 간헐적으로 핫스팟 시뮬레이션 데이터를 반환하는 하이브리드 모드 제공)
-    """
+    """윈도우 환경에서 Wi-Fi SSID를 쿼리하여 모바일 핫스팟에 연결되어 있는지 감지합니다."""
     import subprocess
-    import random
     
-    # 테스트 편의용 시뮬레이션 코드 (약 10%의 확률로 'Galaxy_Hotspot' 연결 전환 연출)
-    if random.random() < 0.10:
-        return "Galaxy_Hotspot_5G"
-        
     try:
         # 윈도우 무선 네트워크 인터페이스 정보 확인
         result = subprocess.run(
@@ -2245,7 +2869,7 @@ def background_monitor_loop():
                 time_module.sleep(30)
                 continue
                 
-            # 1. 읽지 않은 새로운 Gmail 메일 수신 감지
+            # 1. 새로운 Gmail 메일 감지
             try:
                 gmail_service = build("gmail", "v1", credentials=creds)
                 gmail_res = gmail_service.users().messages().list(
@@ -2256,27 +2880,19 @@ def background_monitor_loop():
                 
                 if last_checked_email_count is not None and email_count > last_checked_email_count:
                     new_count = email_count - last_checked_email_count
-                    conn = sqlite3.connect("jarvis_memory.db")
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        "INSERT INTO notifications (title, message) VALUES (?, ?)",
-                        ("새 메일 알림", f"읽지 않은 새로운 메일이 {new_count}건 도착했습니다.")
-                    )
-                    conn.commit()
-                    conn.close()
+                    db_adapter.add_notification("메일 알림", f"새로운 메일 {new_count}건이 도착했습니다.")
                     print(f"[Monitor] New unread email notification inserted.")
                     
                 last_checked_email_count = email_count
             except Exception as e_gmail:
                 print("[Monitor] Gmail check failed:", e_gmail)
                 
-            # 2. 15분 뒤 임박한 구글 캘린더 일정 감지
+            # 2. 15분 이내 임박한 구글 캘린더 일정 감지
             try:
                 calendar_service = build("calendar", "v3", credentials=creds)
                 now = datetime.now()
                 local_tz = datetime.now().astimezone().tzinfo
                 
-                # 현재 기준 1시간 이내에 시작되는 일정 목록 패치
                 start_time_limit = now.astimezone().isoformat()
                 end_time_limit = (now + timedelta(hours=1)).astimezone().isoformat()
                 
@@ -2296,47 +2912,35 @@ def background_monitor_loop():
                     if not start_iso:
                         continue
                         
-                    # 일정 시작 시간 파싱
                     start_dt = datetime.fromisoformat(start_iso.replace('Z', '+00:00'))
                     diff_minutes = (start_dt - now.astimezone()).total_seconds() / 60
                     
-                    # 0분 ~ 15분 이내에 시작되는 일정이면 알림 생성 (중복 방지를 위해 ID 기록 매칭)
                     if 0 < diff_minutes <= 15:
-                        conn = sqlite3.connect("jarvis_memory.db")
-                        cursor = conn.cursor()
-                        cursor.execute("SELECT id FROM notifications WHERE message LIKE ?", (f"%{event_id}%",))
-                        already_notified = cursor.fetchone()
+                        already_notified = db_adapter.check_notification_exists_by_message_pattern(f"%{event_id}%")
                         
                         if not already_notified:
-                            cursor.execute(
-                                "INSERT INTO notifications (title, message) VALUES (?, ?)",
-                                ("임박한 일정 알림", f"잠시 후 {int(diff_minutes)}분 뒤에 '{title}' 일정이 예정되어 있습니다. [Event ID: {event_id}]")
+                            db_adapter.add_notification(
+                                "임박 일정 알림",
+                                f"약 {int(diff_minutes)}분 후에 '{title}' 일정이 예정되어 있습니다. [Event ID: {event_id}]"
                             )
-                            conn.commit()
                             print(f"[Monitor] Proactive calendar alert inserted for: {title}")
-                        conn.close()
             except Exception as e_cal:
                 print("[Monitor] Calendar check failed:", e_cal)
                 
-            # 3. 핫스팟 기기 연결 모니터링 (능동형 트리거)
+            # 3. 핫스팟 연결 모니터링 (능동형 트리거)
             try:
                 current_ssid = check_hotspot_connection()
                 if current_ssid and current_ssid != last_hotspot_ssid:
-                    # 핫스팟이 새로 연결됨!
-                    conn = sqlite3.connect("jarvis_memory.db")
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        "INSERT INTO notifications (title, message) VALUES (?, ?)",
-                        ("핫스팟 기기 연결됨", f"모바일 핫스팟({current_ssid})에 연결이 성공적으로 활성화되었습니다.")
+                    db_adapter.add_notification(
+                        "핫스팟 감지",
+                        f"모바일 핫스팟({current_ssid}) 연결이 감지 및 활성화되었습니다."
                     )
-                    conn.commit()
-                    conn.close()
                     print(f"[Monitor] Hotspot connection notification inserted: {current_ssid}")
                 last_hotspot_ssid = current_ssid
             except Exception as e_hotspot:
                 print("[Monitor] Hotspot connection check failed:", e_hotspot)
                 
-            # 4. 스마트 플러그 전력 과부하 모니터링 (능동형 트리거)
+            # 4. 스마트 플러그 전력 모니터링 (능동형 트리거)
             try:
                 profiles = get_all_user_profiles()
                 is_plug_on = profiles.get("device_smartplug", "OFF") == "ON"
@@ -2344,21 +2948,15 @@ def background_monitor_loop():
                     power_usage = check_smart_plug_power()
                     if power_usage >= 2000.0:
                         now = datetime.now()
-                        # 5분(300초) 간격으로 중복 알림 차단
                         if last_overpower_alert_time is None or (now - last_overpower_alert_time).total_seconds() > 300:
-                            conn = sqlite3.connect("jarvis_memory.db")
-                            cursor = conn.cursor()
-                            cursor.execute(
-                                "INSERT INTO notifications (title, message) VALUES (?, ?)",
-                                ("스마트 플러그 과전력 경고", f"경고: 스마트 플러그의 현재 전력 사용량이 {power_usage:.1f}W로 임계값(2000W)을 초과했습니다. 과부하 위험이 있습니다.")
+                            db_adapter.add_notification(
+                                "스마트 플러그 경고",
+                                f"주의: 스마트 플러그 전력 사용량이 {power_usage:.1f}W로 임계치(2000W)를 초과했습니다. 점검이 필요합니다."
                             )
-                            conn.commit()
-                            conn.close()
                             last_overpower_alert_time = now
                             print(f"[Monitor] Overpower alert notification inserted: {power_usage:.1f}W")
             except Exception as e_power:
                 print("[Monitor] Smart plug power check failed:", e_power)
-                
         except Exception as ex:
             print("[Monitor] Unhandled error in background loop:", ex)
             
@@ -2367,16 +2965,12 @@ def background_monitor_loop():
 
 @app.get("/api/voice/status")
 def get_voice_status():
-    """목소리 성문이 등록되어 있는지 여부를 확인합니다."""
+    """목소리 등록 상태(등록 여부, 각 테이블 카운트, 적응형 임계값)를 조회합니다."""
     try:
-        conn = sqlite3.connect("jarvis_memory.db")
-        cursor = conn.cursor()
-        cursor.execute("SELECT id FROM voice_profiles ORDER BY id DESC LIMIT 1")
-        row = cursor.fetchone()
-        conn.close()
-        return {"registered": row is not None}
-    except Exception:
-        return {"registered": False}
+        return db_adapter.get_voice_status_info()
+    except Exception as e:
+        print(f"[Voice Status Error] {e}")
+        return {"registered": False, "total_count": 0, "base_count": 0, "append_count": 0, "auto_count": 0, "threshold": "0.0%"}
 
 
 @app.post("/ai/chat/voice")
@@ -2392,24 +2986,16 @@ async def ai_chat_voice(
     if voice_file:
         try:
             audio_bytes = await voice_file.read()
-            # 실시간 감정/스트레스 지수 분석
             emotion_data = analyze_voice_emotion(audio_bytes)
         except Exception as e:
             print(f"[Voice Chat] Error reading audio for emotion analysis: {e}")
 
     if voice_lock:
         try:
-            # 1. DB에서 기등록된 모든 사용자 성문 데이터 + 적응형 임계값 조회
-            conn = sqlite3.connect("jarvis_memory.db")
-            cursor = conn.cursor()
-            cursor.execute("SELECT features, label FROM voice_profiles")
-            rows = cursor.fetchall()
-            cursor.execute("SELECT value FROM voice_settings WHERE key='adaptive_threshold'")
-            threshold_row = cursor.fetchone()
-            conn.close()
+            rows = db_adapter.get_all_voice_profiles()
+            threshold_val = db_adapter.get_voice_setting("adaptive_threshold")
 
-            # 적응형 임계값 읽기 (없으면 기본값 0.78)
-            adaptive_threshold = float(threshold_row[0]) if threshold_row else 0.78
+            adaptive_threshold = float(threshold_val) if threshold_val else 0.78
 
             if not rows:
                 return {
@@ -2421,39 +3007,56 @@ async def ai_chat_voice(
                     "response": "⚠️ VOICE LOCK이 활성화되어 있으나, 명령 음성 데이터가 전달되지 않았습니다."
                 }
 
-            # 2. 전달받은 음성의 2차원 특징 프레임 시퀀스 추출 (DTW용)
             test_features = extract_mfcc_frames(audio_bytes)
             if test_features is None:
                 return {
                     "response": "⚠️ 오디오 데이터 파싱에 실패했습니다. (16-bit PCM WAV 형식이 맞는지 확인해 주세요)"
                 }
 
-            # 3. 모든 등록된 성문과의 DTW 유사도 계산 → 최댓값 산출
             similarities = []
             for row in rows:
-                stored_features = np.array(json.loads(row[0]))
-                # 차원 불일치 시 (구 버전 80차원 vs 신 버전 2차원) 재등록 안내
+                stored_features = np.array(row["features"])
                 if stored_features.ndim != test_features.ndim:
                     return {
                         "response": "⚠️ [Voice Lock] 성문 데이터 버전이 맞지 않습니다. 목소리를 다시 등록해 주세요. (새 DTW 2차원 버전)"
                     }
                 sim = calculate_voice_similarity(stored_features, test_features)
                 similarities.append(sim)
-                print(f"[Voice Lock] DTW similarity with '{row[1]}': {sim*100:.2f}%")
+                print(f"[Voice Lock] DTW similarity with '{row['label']}': {sim*100:.2f}%")
 
             max_similarity = max(similarities) if similarities else 0.0
             print(f"[Voice Lock] Max similarity: {max_similarity*100:.2f}% | Threshold: {adaptive_threshold*100:.1f}%")
 
-            # 적응형 임계값으로 판단
             if max_similarity < adaptive_threshold:
                 return {
                     "response": f"⚠️ [VOICE LOCK 거부] 등록되지 않은 목소리입니다. (유사도: {max_similarity*100:.1f}% / 기준: {adaptive_threshold*100:.1f}%)"
                 }
 
+            if max_similarity >= 0.83:
+                try:
+                    main_id = db_adapter.save_voice_profile(test_features.tolist(), "auto_adapted")
+                    
+                    augmented_variants = augment_mfcc_features(test_features)
+                    for aug_type, aug_features in augmented_variants:
+                        db_adapter.save_voice_profile(aug_features.tolist(), f"auto_adapted_aug_{main_id}_{aug_type}")
+                    
+                    all_profiles = db_adapter.get_all_voice_profiles()
+                    auto_profiles = [p for p in all_profiles if p.get('label') == 'auto_adapted']
+                    if len(auto_profiles) > 30:
+                        num_to_delete = len(auto_profiles) - 30
+                        for p in auto_profiles[:num_to_delete]:
+                            old_id = p['id']
+                            db_adapter.delete_voice_profile_by_id(old_id)
+                            db_adapter.delete_voice_profiles_by_label_like(f"auto_adapted_aug_{old_id}_%")
+                            
+                    update_voice_lock_threshold()
+                    print(f"[Auto Adaptation] Saved verified voice sample as profile #{main_id} (and augmented {len(augmented_variants)} versions).")
+                except Exception as e_adapt:
+                    print(f"[Auto Adaptation] Failed to auto-adapt voice profile: {e_adapt}")
+
         except Exception as e:
             return {"response": f"자비스 목소리 잠금 확인 중 오류 발생: {str(e)}"}
             
-    # 검증 통과 시 혹은 Lock 비활성화 시 대화 실행
     result = execute_ai_chat(message, emotion_data=emotion_data)
     if emotion_data:
         result["emotion"] = emotion_data
@@ -2556,16 +3159,9 @@ def save_consultation_note(client_name: str, raw_note: str) -> str:
     # ── 5. 로컬 DB에도 인덱스 저장 ──
     doc_url = f"https://docs.google.com/document/d/{doc_id}/edit"
     try:
-        conn = sqlite3.connect("jarvis_memory.db")
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO consultations (client_name, structured_note, docs_url) VALUES (?, ?, ?)",
-            (client_name, structured_text, doc_url)
-        )
-        conn.commit()
-        conn.close()
+        db_adapter.save_consultation(client_name, structured_text, doc_url)
     except Exception as e:
-        print(f"[Consultation] Local DB save failed: {e}")
+        print(f"[Consultation] DB save failed: {e}")
 
     return f"✅ {client_name} 내담자 상담 노트가 Google Docs에 저장되었습니다.\n📄 문서 바로가기: {doc_url}"
 
@@ -2838,31 +3434,11 @@ def create_consultation(payload: ConsultationRequest):
 @app.get("/api/consultation/today")
 def get_today_consultations():
     """오늘 저장된 상담 노트 목록을 반환합니다."""
-    from datetime import datetime
     try:
-        today = datetime.now().strftime("%Y-%m-%d")
-        conn = sqlite3.connect("jarvis_memory.db")
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT client_name, structured_note, docs_url, timestamp FROM consultations WHERE date(timestamp) = ? ORDER BY id ASC",
-            (today,)
-        )
-        rows = cursor.fetchall()
-        conn.close()
-        return [
-            {
-                "client_name": r[0],
-                "structured_note": r[1],
-                "docs_url": r[2],
-                "time": r[3][11:16] if r[3] else ""
-            }
-            for r in rows
-        ]
+        return db_adapter.get_today_consultations()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-from fastapi.responses import FileResponse
 
 @app.get("/manifest.json")
 def get_manifest():
@@ -2965,24 +3541,11 @@ def on_startup():
 def get_notifications():
     """읽지 않은 자비스 알림(선제적 알림) 목록을 가져오고 읽음 처리합니다."""
     try:
-        conn = sqlite3.connect("jarvis_memory.db")
-        cursor = conn.cursor()
-        # 읽지 않은 알림 가져오기
-        cursor.execute("SELECT id, title, message, timestamp FROM notifications WHERE read = 0 ORDER BY id ASC")
-        rows = cursor.fetchall()
-        
-        # 가져온 알림들은 읽음 처리
-        if rows:
-            ids = [row[0] for row in rows]
-            placeholders = ",".join(["?"] * len(ids))
-            cursor.execute(f"UPDATE notifications SET read = 1 WHERE id IN ({placeholders})", ids)
-            conn.commit()
-            
-        conn.close()
-        
-        return [{"id": r[0], "title": r[1], "message": r[2], "timestamp": r[3]} for r in rows]
+        unread = db_adapter.get_unread_notifications()
+        if unread:
+            ids = [n["id"] for n in unread]
+            db_adapter.mark_notifications_as_read(ids)
+        return unread
     except Exception as e:
         print("Error fetching notifications:", e)
         return []
-
-
