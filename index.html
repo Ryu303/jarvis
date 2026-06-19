@@ -2747,6 +2747,15 @@
                 return;
             }
 
+            // 모바일 PWA에서 Web Speech API는 반드시 HTTPS 또는 localhost에서만 작동
+            const isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+            if (!isSecure) {
+                isSpeechRecognizing = false;
+                appendChatMessage('system', '⚠️ 음성 인식은 HTTPS 환경에서만 작동합니다. 서버에 HTTPS를 설정하거나 ngrok을 사용해 주세요.');
+                updateTerminalGlow(false);
+                return;
+            }
+
             if (isSpeechRecognizing && recognition) {
                 recognition.stop();
                 return;
@@ -2764,20 +2773,11 @@
 
             jarvisSoundscape.setMuteForMic(true);
 
-            // 음성 녹음 (WAVRecorder) 기동 여부 결정
+            // WAVRecorder를 STT와 동시에 사용하면 모바일에서 마이크 스트림 충돌 발생.
+            // STT 전용 모드: WAVRecorder 없이 SpeechRecognition만 사용하여 안정적인 음성 인식.
+            // (성문 등록은 별도 버튼의 독립 플로우에서만 WAVRecorder를 사용)
             lastRecordedWavBlob = null;
             activeWavRecorder = null;
-
-            if (!skipRecorder) {
-                activeWavRecorder = new WAVRecorder();
-                try {
-                    // SpeechRecognition.start() 이전에 getUserMedia를 구동해야 크롬에서 세션 abort를 피할 수 있음
-                    await activeWavRecorder.start();
-                } catch (err) {
-                    console.error("Failed to start voice recorder:", err);
-                    activeWavRecorder = null; // 실패 시 안전하게 null 리셋하고 STT만 시도
-                }
-            }
 
             recognition = new SpeechRecognition();
             recognition.lang = 'ko-KR';
