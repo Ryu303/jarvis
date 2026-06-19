@@ -898,7 +898,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/documents"
 ]
 
-REDIRECT_URI = "http://localhost:8000/callback"
+REDIRECT_URI = os.getenv("REDIRECT_URI", "http://localhost:8000/callback")
 
 def get_client_config():
     """.env 파일에서 읽어온 값으로 Google OAuth client_config 생성"""
@@ -1033,7 +1033,7 @@ def get_today_calendar():
     if not creds:
         raise HTTPException(
             status_code=401, 
-            detail="로그인이 필요합니다. http://localhost:8000/login 에서 먼저 인증해 주세요."
+            detail="로그인이 필요합니다. /login 에서 먼저 인증해 주세요."
         )
     
     try:
@@ -1103,7 +1103,7 @@ def get_unread_emails():
         if not creds:
             raise HTTPException(
                 status_code=401, 
-                detail="로그인이 필요합니다. http://localhost:8000/login 에서 먼저 인증해 주세요."
+                detail="로그인이 필요합니다. /login 에서 먼저 인증해 주세요."
             )
         
         # 구글 Gmail 서비스 빌드
