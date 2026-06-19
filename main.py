@@ -2453,7 +2453,7 @@ def synthesize_speech(text: str):
                 "name": "ko-KR-Neural2-C",
                 "ssmlGender": "MALE"
             },
-            "audioConfig": {"audioEncoding": "MP3", "speakingRate": 1.2}
+            "audioConfig": {"audioEncoding": "MP3", "speakingRate": 1.4}
         }).encode("utf-8")
         req = urllib.request.Request(
             url,
