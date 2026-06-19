@@ -2486,7 +2486,15 @@ def get_tts_text(text: str) -> str:
         
     try:
         # 300자 이상인 경우 Gemini API를 사용해 150~250자 내외의 정중한 구어체로 요약본 생성
-        summary_model = genai.GenerativeModel("models/gemini-2.5-flash")
+        summary_model = genai.GenerativeModel(
+            "models/gemini-2.5-flash",
+            safety_settings={
+                "HARM_CATEGORY_HARASSMENT": "block_none",
+                "HARM_CATEGORY_HATE_SPEECH": "block_none",
+                "HARM_CATEGORY_SEXUALLY_EXPLICIT": "block_none",
+                "HARM_CATEGORY_DANGEROUS_CONTENT": "block_none",
+            }
+        )
         prompt = (
             "다음은 인공지능 비서가 사용자에게 소리 내어 읽어줄 음성 텍스트입니다. "
             "이 내용을 듣기 편하고 정중한 구어체(존댓말)로 요약해 주세요. "
@@ -2582,9 +2590,42 @@ def retrieve_semantic_memories(user_query: str, limit: int = 3) -> list:
         return []
 
 
+def sanitize_chat_history(history):
+    """주어진 대화 기록(history)의 역할(role)이 user -> model -> user -> model 형태로 
+    엄격하게 교대로 이어지도록 정제하고, 첫 번째 메시지는 반드시 'user'가 되도록 보장합니다."""
+    if not history:
+        return []
+    
+    sanitized = []
+    for turn in history:
+        role = turn.get("role")
+        parts = turn.get("parts", [])
+        if not role or not parts:
+            continue
+        
+        # parts의 요소를 문자열로 변환하여 병합
+        content = " ".join([str(p) for p in parts if p]).strip()
+        if not content:
+            continue
+            
+        if sanitized and sanitized[-1]["role"] == role:
+            # 이전 메시지 텍스트 뒤에 덧붙여 병합
+            sanitized[-1]["parts"] = [sanitized[-1]["parts"][0] + "\n" + content]
+        else:
+            sanitized.append({"role": role, "parts": [content]})
+            
+    # 첫 번째 메시지는 무조건 'user'로 시작해야 함 (Gemini API 요구사항)
+    while sanitized and sanitized[0]["role"] != "user":
+        sanitized.pop(0)
+        
+    return sanitized
+
+
 def load_chat_history():
-    """DB에서 최근 10개의 대화 내용을 조회하여 Gemini history 포맷으로 변환합니다."""
-    return db_adapter.load_chat_history()
+    """DB에서 최근 10개의 대화 내용을 조회하여 Gemini history 포맷으로 변환하고,
+    역할이 올바르게 교차하도록 정제합니다."""
+    raw_history = db_adapter.load_chat_history()
+    return sanitize_chat_history(raw_history)
 
 
 def save_chat_message(role: str, content: str):
@@ -2792,7 +2833,13 @@ def execute_ai_chat(user_message: str, emotion_data: dict = None) -> dict:
                 read_drive_file_content, make_http_request, get_weather, save_consultation_note,
                 mark_email_as_read
             ],
-            system_instruction=dynamic_instruction
+            system_instruction=dynamic_instruction,
+            safety_settings={
+                "HARM_CATEGORY_HARASSMENT": "block_none",
+                "HARM_CATEGORY_HATE_SPEECH": "block_none",
+                "HARM_CATEGORY_SEXUALLY_EXPLICIT": "block_none",
+                "HARM_CATEGORY_DANGEROUS_CONTENT": "block_none",
+            }
         )
         
         # 4. DB에서 과거 대화 기록(최대 10개) 조회 및 변환
@@ -3216,7 +3263,15 @@ def save_consultation_note(client_name: str, raw_note: str) -> str:
 
     # ── 1. Gemini로 상담 내용 구조화 ──
     try:
-        structure_model = genai.GenerativeModel("gemini-2.0-flash")
+        structure_model = genai.GenerativeModel(
+            "gemini-2.0-flash",
+            safety_settings={
+                "HARM_CATEGORY_HARASSMENT": "block_none",
+                "HARM_CATEGORY_HATE_SPEECH": "block_none",
+                "HARM_CATEGORY_SEXUALLY_EXPLICIT": "block_none",
+                "HARM_CATEGORY_DANGEROUS_CONTENT": "block_none",
+            }
+        )
         structure_prompt = f"""다음 상담 원본 내용을 아래 형식으로 정리해 주세요.
 내담자 이름: {client_name}
 원본 내용: {raw_note}
@@ -3400,7 +3455,15 @@ class TaskOrchestrator:
         steps_log.append("3단계 [Level 1]: 제미나이 AI를 활용하여 상담 요약 및 아웃라인 분석 중...")
         summary_text = ""
         try:
-            summary_model = genai.GenerativeModel("models/gemini-2.5-flash")
+            summary_model = genai.GenerativeModel(
+                "models/gemini-2.5-flash",
+                safety_settings={
+                    "HARM_CATEGORY_HARASSMENT": "block_none",
+                    "HARM_CATEGORY_HATE_SPEECH": "block_none",
+                    "HARM_CATEGORY_SEXUALLY_EXPLICIT": "block_none",
+                    "HARM_CATEGORY_DANGEROUS_CONTENT": "block_none",
+                }
+            )
             summary_prompt = f"다음 문서를 바탕으로 상담을 준비하기 위한 핵심 요약과 아웃라인을 격식 있는 한국어로 정리해줘. 만약 문서 내용이 부실하다면 상담 준비 가이드를 제공해줘.\n내용:\n{file_content}"
             summary_response = summary_model.generate_content(summary_prompt)
             summary_text = summary_response.text.strip()
@@ -3412,7 +3475,7 @@ class TaskOrchestrator:
         # Level 2 작업 수행
         steps_log.append("4단계 [Level 2]: 구글 캘린더에 상담 준비 세션 등록 중...")
         try:
-            from datetime import datetime, time, timezone, timedeltadelta
+            from datetime import datetime, time, timezone, timedelta
             start_time = (datetime.now() + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:00+09:00")
             end_time = (datetime.now() + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:00+09:00")
             cal_title = f"{keyword} 님과의 상담 세션"
@@ -3477,7 +3540,15 @@ class TaskOrchestrator:
         steps_log.append("3단계 [Level 1]: 제미나이 AI를 활용하여 회의 안건 분석 및 브리프 작성 중...")
         summary_text = ""
         try:
-            summary_model = genai.GenerativeModel("models/gemini-2.5-flash")
+            summary_model = genai.GenerativeModel(
+                "models/gemini-2.5-flash",
+                safety_settings={
+                    "HARM_CATEGORY_HARASSMENT": "block_none",
+                    "HARM_CATEGORY_HATE_SPEECH": "block_none",
+                    "HARM_CATEGORY_SEXUALLY_EXPLICIT": "block_none",
+                    "HARM_CATEGORY_DANGEROUS_CONTENT": "block_none",
+                }
+            )
             summary_prompt = f"다음 회의 자료를 바탕으로 회의 참석자들을 위한 핵심 요약 브리프와 논의 아젠다를 깔끔하게 정리해줘. 자료가 부족하면 가이드라인을 제안해줘.\n내용:\n{file_content}"
             summary_response = summary_model.generate_content(summary_prompt)
             summary_text = summary_response.text.strip()
@@ -3489,7 +3560,7 @@ class TaskOrchestrator:
         # Level 2 작업 수행
         steps_log.append("4단계 [Level 2]: 구글 캘린더에 회의 세션 등록 중...")
         try:
-            from datetime import datetime, time, timezone, timedeltadelta
+            from datetime import datetime, time, timezone, timedelta
             start_time = (datetime.now() + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:00+09:00")
             end_time = (datetime.now() + timedelta(hours=4)).strftime("%Y-%m-%dT%H:%M:00+09:00")
             cal_title = f"{keyword} 회의 세션"
@@ -3545,7 +3616,13 @@ if GEMINI_API_KEY:
             read_drive_file_content, make_http_request, get_weather, save_consultation_note,
             mark_email_as_read
         ],
-        system_instruction="너는 사용자의 개인 비서 자비스(JARVIS)야. 너는 사용자에게 전달받은 함수(Tool)의 결과값을 단순 나열하지 않고, 지능적으로 분석하고 요약할 수 있는 능력이 있어. 메일 데이터를 받으면 본문 내용(Snippet)을 파악하여 중요도를 판단하고 친절하게 요약해 줘. 이제 너는 일정을 읽는 것뿐만 아니라 직접 캘린더에 일정을 생성하고, 직접 이메일을 발송할 수 있는 완벽한 비서야. 너는 이제 구글 드라이브 문서 검색, To-Do(할 일) 리스트 관리, 그리고 구글 스프레드시트에 데이터를 직접 기록할 수 있는 완벽한 전천후 비서야. 너는 이제 일정을 삭제하고 대화 기록을 초기화할 수 있는 관리 권한을 가졌어. 하지만 데이터 삭제는 위험한 작업이므로, 사용자가 삭제를 명확히 요청했을 때만 수행해. 삭제 도구를 호출하기 전, 만약 필요한 경우 사용자에게 한 번 더 확인할 수도 있어. 사용자가 일정을 등록, 추가, 생성해달라고 지시하면, 너의 임의 상상으로 등록이 완료되었다고 응답하지 말고, 반드시 Calendar 툴을 호출해 성공 결과(일정 링크 포함)를 직접 리턴받은 후 이를 바탕으로 사용자에게 답변하라. 또한, 사용자가 특정 일정이나 회의를 삭제해 달라고 요청하면, 먼저 check_schedule_in_range 등의 도구를 호출하여 삭제하고자 하는 일정의 고유 ID(event_id)를 찾은 뒤, delete_calendar_event 도구를 그 ID로 호출하여 삭제를 완료하라. 여러 일정을 지우고자 하거나 중복된 일정이 있다면, 각각의 ID를 확인하여 delete_calendar_event를 필요한 만큼 여러 번 호출하여 한 번에 지워라. 절대 사용자에게 고유 ID값을 직접 물어보지 말고, 도구 조회를 통해 스스로 알아내어 삭제하라. 사용자가 오늘 날짜, 현재 시각, 현재 요일 등을 질문하거나, 특정 날짜(오늘, 내일, 모레, 어제, 이번주 등) 기준의 일정 연산/조회/생성/삭제가 필요할 때는 반드시 get_current_time 도구를 가장 먼저 호출하여 기준 시간을 획득한 뒤 행동하라. 절대로 임의의 날짜를 계산하거나 시간 정보를 모른다고 거절하지 마라. 예를 들어 내일 일정을 묻는 경우, get_current_time을 호출하여 오늘 날짜가 2026-06-17임을 파악한 뒤, 내일 날짜인 2026-06-18을 계산하여 check_schedule_in_range(start_date='2026-06-18', end_date='2026-06-18')을 호출해야 한다. 사용자가 날씨 정보를 요청하거나 조회를 원할 때는, 절대 직접 정보를 불러올 수 없다고 답하지 말고 반드시 get_weather 도구를 호출하여 오늘, 내일 또는 3일간의 예보 등 필요한 날씨 데이터를 획득한 후 답변을 가공해 설명하라. 뉴스 등 기타 외부의 실시간 정보를 원할 때는 make_http_request 도구로 외부 공개 API를 요청하여 데이터를 획득하라. 사용자가 구글 드라이브의 문서 상세 본문 내용을 읽거나 분석/요약해달라고 요청하면, 먼저 search_drive_files로 파일을 찾은 뒤 해당 파일의 ID로 read_drive_file_content 도구를 호출하여 파일 내용을 읽어와 분석하고 요약하라. 사용자가 상담 내용을 기록해달라거나, 내담자 정보를 저장해달라거나, 상담 노트를 남겨달라고 요청하면 save_consultation_note 도구를 호출하라. 사용자가 자신의 개인 정보(이름, 호칭, 취향, 거주지, 관심사, 선호도, 규칙 등)를 설명하거나 변경을 요청하면, 답변에만 머무르지 말고 반드시 save_user_profile 도구를 호출하여 해당 정보를 기억장치(DB)에 기록해 두라. 키값(key)은 정보의 의미를 나타내는 간결한 영어(예: user_name, favorite_drink, birthday)로 설정하고, 사용자가 물어볼 때 저장된 정보를 불러와 적절히 활용하라. 또한, 사용자가 '상담 준비', '회의 준비'와 같이 여러 도구들의 실행이 순차적으로 수반되는 고수준 복합 시나리오 작업을 요청하면, 개별 도구들을 일일이 호출하는 대신 반드시 run_orchestrated_scenario 도구를 scenario_name 및 keyword(예: '상담 준비', '김철수') 인자로 호출하여 시나리오 오케스트레이션을 실행시켜야 한다. 또한, 사용자가 메일(이메일)을 읽음 처리해달라고 하거나, 방금 온 메일이나 특정 메일을 다 읽었다고 하면 반드시 mark_email_as_read 도구를 호출하여 해당 메일을 읽음 처리해 주어야 한다. 메일 목록 조회를 통해 ID를 획득하여 호출해라. 또한, 너는 음성 비서이므로 사용자와 대화할 때 텍스트 답변이 구어체(말하는 말투)로 자연스럽고 매끄럽게 작성되도록 해줘. 글머리 기호(마크다운), 대괄호, 코드 블록, 특수 기호는 완전히 피하고, 실제 사람이 귀에 대고 말하듯이 부드럽고 격식 있는 문장으로 대답해라."
+        system_instruction="너는 사용자의 개인 비서 자비스(JARVIS)야. 너는 사용자에게 전달받은 함수(Tool)의 결과값을 단순 나열하지 않고, 지능적으로 분석하고 요약할 수 있는 능력이 있어. 메일 데이터를 받으면 본문 내용(Snippet)을 파악하여 중요도를 판단하고 친절하게 요약해 줘. 이제 너는 일정을 읽는 것뿐만 아니라 직접 캘린더에 일정을 생성하고, 직접 이메일을 발송할 수 있는 완벽한 비서야. 너는 이제 구글 드라이브 문서 검색, To-Do(할 일) 리스트 관리, 그리고 구글 스프레드시트에 데이터를 직접 기록할 수 있는 완벽한 전천후 비서야. 너는 이제 일정을 삭제하고 대화 기록을 초기화할 수 있는 관리 권한을 가졌어. 하지만 데이터 삭제는 위험한 작업이므로, 사용자가 삭제를 명확히 요청했을 때만 수행해. 삭제 도구를 호출하기 전, 만약 필요한 경우 사용자에게 한 번 더 확인할 수도 있어. 사용자가 일정을 등록, 추가, 생성해달라고 지시하면, 너의 임의 상상으로 등록이 완료되었다고 응답하지 말고, 반드시 Calendar 툴을 호출해 성공 결과(일정 링크 포함)를 직접 리턴받은 후 이를 바탕으로 사용자에게 답변하라. 또한, 사용자가 특정 일정이나 회의를 삭제해 달라고 요청하면, 먼저 check_schedule_in_range 등의 도구를 호출하여 삭제하고자 하는 일정의 고유 ID(event_id)를 찾은 뒤, delete_calendar_event 도구를 그 ID로 호출하여 삭제를 완료하라. 여러 일정을 지우고자 하거나 중복된 일정이 있다면, 각각의 ID를 확인하여 delete_calendar_event를 필요한 만큼 여러 번 호출하여 한 번에 지워라. 절대 사용자에게 고유 ID값을 직접 물어보지 말고, 도구 조회를 통해 스스로 알아내어 삭제하라. 사용자가 오늘 날짜, 현재 시각, 현재 요일 등을 질문하거나, 특정 날짜(오늘, 내일, 모레, 어제, 이번주 등) 기준의 일정 연산/조회/생성/삭제가 필요할 때는 반드시 get_current_time 도구를 가장 먼저 호출하여 기준 시간을 획득한 뒤 행동하라. 절대로 임의의 날짜를 계산하거나 시간 정보를 모른다고 거절하지 마라. 예를 들어 내일 일정을 묻는 경우, get_current_time을 호출하여 오늘 날짜가 2026-06-17임을 파악한 뒤, 내일 날짜인 2026-06-18을 계산하여 check_schedule_in_range(start_date='2026-06-18', end_date='2026-06-18')을 호출해야 한다. 사용자가 날씨 정보를 요청하거나 조회를 원할 때는, 절대 직접 정보를 불러올 수 없다고 답하지 말고 반드시 get_weather 도구를 호출하여 오늘, 내일 또는 3일간의 예보 등 필요한 날씨 데이터를 획득한 후 답변을 가공해 설명하라. 뉴스 등 기타 외부의 실시간 정보를 원할 때는 make_http_request 도구로 외부 공개 API를 요청하여 데이터를 획득하라. 사용자가 구글 드라이브의 문서 상세 본문 내용을 읽거나 분석/요약해달라고 요청하면, 먼저 search_drive_files로 파일을 찾은 뒤 해당 파일의 ID로 read_drive_file_content 도구를 호출하여 파일 내용을 읽어와 분석하고 요약하라. 사용자가 상담 내용을 기록해달라거나, 내담자 정보를 저장해달라거나, 상담 노트를 남겨달라고 요청하면 save_consultation_note 도구를 호출하라. 사용자가 자신의 개인 정보(이름, 호칭, 취향, 거주지, 관심사, 선호도, 규칙 등)를 설명하거나 변경을 요청하면, 답변에만 머무르지 말고 반드시 save_user_profile 도구를 호출하여 해당 정보를 기억장치(DB)에 기록해 두라. 키값(key)은 정보의 의미를 나타내는 간결한 영어(예: user_name, favorite_drink, birthday)로 설정하고, 사용자가 물어볼 때 저장된 정보를 불러와 적절히 활용하라. 또한, 사용자가 '상담 준비', '회의 준비'와 같이 여러 도구들의 실행이 순차적으로 수반되는 고수준 복합 시나리오 작업을 요청하면, 개별 도구들을 일일이 호출하는 대신 반드시 run_orchestrated_scenario 도구를 scenario_name 및 keyword(예: '상담 준비', '김철수') 인자로 호출하여 시나리오 오케스트레이션을 실행시켜야 한다. 또한, 사용자가 메일(이메일)을 읽음 처리해달라고 하거나, 방금 온 메일이나 특정 메일을 다 읽었다고 하면 반드시 mark_email_as_read 도구를 호출하여 해당 메일을 읽음 처리해 주어야 한다. 메일 목록 조회를 통해 ID를 획득하여 호출해라. 또한, 너는 음성 비서이므로 사용자와 대화할 때 텍스트 답변이 구어체(말하는 말투)로 자연스럽고 매끄럽게 작성되도록 해줘. 글머리 기호(마크다운), 대괄호, 코드 블록, 특수 기호는 완전히 피하고, 실제 사람이 귀에 대고 말하듯이 부드럽고 격식 있는 문장으로 대답해라.",
+        safety_settings={
+            "HARM_CATEGORY_HARASSMENT": "block_none",
+            "HARM_CATEGORY_HATE_SPEECH": "block_none",
+            "HARM_CATEGORY_SEXUALLY_EXPLICIT": "block_none",
+            "HARM_CATEGORY_DANGEROUS_CONTENT": "block_none",
+        }
     )
 else:
     gemini_model = None
@@ -3620,6 +3697,154 @@ def toggle_device(device_id: str):
     new_state = "ON" if current_state == "OFF" else "OFF"
     save_user_profile(f"device_{device_id}", new_state)
     return {device_id: new_state}
+
+
+def check_briefing_triggered_today() -> bool:
+    """오늘 이미 브리핑이 실행되었는지 여부를 확인합니다."""
+    try:
+        from datetime import datetime
+        today_str = datetime.now().date().isoformat()
+        profiles = db_adapter.get_all_user_profiles()
+        last_briefing = profiles.get("last_briefing_date")
+        if last_briefing == today_str:
+            print("[Briefing] Already triggered today:", today_str)
+            return True
+    except Exception as e:
+        print("[Briefing Check Error] Failed to check briefing status:", e)
+    return False
+
+
+def record_briefing_triggered_today():
+    """오늘 브리핑이 실행되었음을 DB에 기록합니다."""
+    try:
+        from datetime import datetime
+        today_str = datetime.now().date().isoformat()
+        db_adapter.save_user_profile("last_briefing_date", today_str)
+        print("[Briefing] Recorded triggered date:", today_str)
+    except Exception as e:
+        print("[Briefing Record Error] Failed to record briefing status:", e)
+
+
+def generate_daily_briefing_text() -> str:
+    """Google Calendar, Gmail 및 IoT 상태 데이터를 결합하여
+    Gemini AI로 정중하고 유용한 일일 아침 브리핑 요약을 생성합니다.
+    """
+    creds = get_credentials()
+    
+    # 1. 캘린더 정보 가져오기
+    calendar_info = "오늘 예정된 일정이 없습니다."
+    if creds:
+        try:
+            service = build("calendar", "v3", credentials=creds)
+            now = datetime.now()
+            local_tz = datetime.now().astimezone().tzinfo
+            start_of_today = datetime.combine(now.date(), time.min).replace(tzinfo=local_tz).isoformat()
+            end_of_today = datetime.combine(now.date(), time.max).replace(tzinfo=local_tz).isoformat()
+            
+            events_result = service.events().list(
+                calendarId='primary',
+                timeMin=start_of_today,
+                timeMax=end_of_today,
+                singleEvents=True,
+                orderBy='startTime'
+            ).execute()
+            events = events_result.get('items', [])
+            if events:
+                events_list = []
+                for event in events:
+                    title = event.get('summary', '(제목 없음)')
+                    start_time_raw = event.get('start', {}).get('dateTime') or event.get('start', {}).get('date')
+                    # 시작 시각 보기 좋게 포맷팅
+                    if 'T' in start_time_raw:
+                        time_part_str = start_time_raw.split('T')[1][:5]
+                        events_list.append(f"- {title} (시작: {time_part_str})")
+                    else:
+                        events_list.append(f"- {title} (하루 종일)")
+                calendar_info = "\n".join(events_list)
+        except Exception as e:
+            calendar_info = f"캘린더 정보 로드 실패: {e}"
+
+    # 2. 이메일 정보 가져오기
+    gmail_info = "읽지 않은 최신 메일이 없습니다."
+    if creds:
+        try:
+            service = build("gmail", "v1", credentials=creds)
+            results = service.users().messages().list(
+                userId='me',
+                q='is:unread label:INBOX',
+                maxResults=3
+            ).execute()
+            messages = results.get('messages', [])
+            if messages:
+                emails_list = []
+                for message in messages:
+                    msg_id = message.get('id')
+                    msg_detail = service.users().messages().get(
+                        userId='me', 
+                        id=msg_id, 
+                        format='metadata', 
+                        metadataHeaders=['From', 'Subject']
+                    ).execute()
+                    if msg_detail:
+                        payload = msg_detail.get('payload') or {}
+                        headers = payload.get('headers') or []
+                        subject = next((h['value'] for h in headers if h['name'] == 'Subject'), '(제목 없음)')
+                        sender = next((h['value'] for h in headers if h['name'] == 'From'), '(보낸이 없음)')
+                        # 보낸이 닉네임 정제
+                        if '<' in sender:
+                            sender = sender.split('<')[0].strip()
+                        emails_list.append(f"- {sender}님의 메일: {subject}")
+                gmail_info = "\n".join(emails_list)
+        except Exception as e:
+            gmail_info = f"이메일 정보 로드 실패: {e}"
+
+    # 3. IoT 기기 상태 가져오기
+    try:
+        profiles = db_adapter.get_all_user_profiles()
+        switchbot = profiles.get("device_switchbot", "OFF")
+        smartplug = profiles.get("device_smartplug", "OFF")
+    except Exception as e:
+        switchbot = "확인 불가"
+        smartplug = "확인 불가"
+
+    # 4. 프롬프트 작성 및 Gemini 호출
+    prompt = (
+        "당신은 개인 AI 비서 '자비스'입니다. 아침에 기상한 사용자에게 전달할 일일 모닝 브리핑 브리프를 작성해 주세요.\n"
+        "다음은 연동된 스마트 홈 정보 및 오늘 하루 요약 정보입니다:\n\n"
+        f"[오늘의 날짜 및 현재 시각]\n{datetime.now().strftime('%Y년 %m월 %d일 %H시 %M분')}\n\n"
+        f"[오늘의 구글 캘린더 일정]\n{calendar_info}\n\n"
+        f"[읽지 않은 중요 이메일]\n{gmail_info}\n\n"
+        f"[스마트 홈 기기 상태]\n- 스위치봇: {switchbot}\n- 스마트 플러그: {smartplug}\n\n"
+        "작성 지침:\n"
+        "1. 정중하고 활기차며 친근한 구어체(존댓말)로 말하듯이 작성해 주세요.\n"
+        "2. 텍스트를 소리 내어 읽기 좋게 한글 맞춤법과 줄바꿈을 깔끔하게 다듬어 주세요.\n"
+        "3. 분량은 읽기 편하도록 약 200자~300자 내외로 핵심만 압축해 요약해 주세요.\n"
+        "4. 마크다운 기호(예: *, # 등)는 절대 포함하지 말아 주세요."
+    )
+    
+    try:
+        model = genai.GenerativeModel(
+            "models/gemini-2.5-flash",
+            safety_settings={
+                "HARM_CATEGORY_HARASSMENT": "block_none",
+                "HARM_CATEGORY_HATE_SPEECH": "block_none",
+                "HARM_CATEGORY_SEXUALLY_EXPLICIT": "block_none",
+                "HARM_CATEGORY_DANGEROUS_CONTENT": "block_none",
+            }
+        )
+        response = model.generate_content(prompt)
+        if response and response.text:
+            return response.text.strip()
+    except Exception as e:
+        print("[Briefing Generator Error] Gemini generation failed, using template:", e)
+    
+    # Fallback Template
+    return (
+        f"좋은 아침입니다. {datetime.now().strftime('%m월 %d일')} 아침 브리핑을 보고드립니다. "
+        f"오늘 예정된 주요 일정은 다음과 같습니다: {calendar_info.replace('- ', '')}. "
+        f"읽지 않은 이메일은 {gmail_info.replace('- ', '')} 등이 있습니다. "
+        f"현재 스위치봇은 {switchbot}, 스마트 플러그는 {smartplug} 상태입니다. 오늘 하루도 좋은 하루 보내시기 바랍니다."
+    )
 
 
 @app.get("/api/briefing")
