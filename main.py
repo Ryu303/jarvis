@@ -18,6 +18,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from dotenv import load_dotenv
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request as GoogleRequest
 import datetime
 from datetime import timezone
 
@@ -914,24 +916,51 @@ def get_client_config():
     }
 
 def get_credentials():
-    """로컬 token.json에서 자격 증명을 로드하고, 만료된 경우 자동으로 갱신"""
+    """로컬 token.json 또는 DB에서 자격 증명을 로드하고, 만료된 경우 자동으로 갱신"""
+    creds = None
+    
+    # 1. 로컬 파일에서 먼저 시도
     if os.path.exists(TOKEN_FILE):
         try:
             creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
-            # 토큰이 만료되었고 갱신 토큰(refresh_token)이 있는 경우 자동 갱신
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(GoogleRequest())
+        except Exception as e:
+            print(f"로컬 토큰 파일 로드 중 오류 발생: {e}")
+            
+    # 2. 로컬 파일에 없거나 실패한 경우 DB에서 로드 시도
+    if not creds:
+        try:
+            profiles = db_adapter.get_all_user_profiles()
+            creds_json = profiles.get("google_credentials")
+            if creds_json:
+                creds = Credentials.from_authorized_user_info(json.loads(creds_json), SCOPES)
+                print("[OAuth] Loaded credentials from database.")
+        except Exception as e:
+            print(f"DB 토큰 로드 중 오류 발생: {e}")
+            
+    # 3. 토큰 갱신이 필요한 경우 처리
+    if creds and creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(GoogleRequest())
+            # 갱신된 토큰을 파일과 DB 양쪽에 저장
+            try:
                 with open(TOKEN_FILE, "w") as token_file:
                     token_file.write(creds.to_json())
                 try:
-                    os.chmod(TOKEN_FILE, 0o600)  # 보안 권한 설정 (소유자 전용 읽기/쓰기)
+                    os.chmod(TOKEN_FILE, 0o600)
                 except Exception:
                     pass
-            return creds
-        except Exception as e:
-            print(f"토큰 로드 중 오류 발생: {e}")
+            except Exception as e_file:
+                print(f"갱신된 토큰 파일 저장 실패 (클라우드 환경일 수 있음): {e_file}")
+                
+            try:
+                db_adapter.save_user_profile("google_credentials", creds.to_json())
+            except Exception as e_db:
+                print(f"갱신된 토큰 DB 저장 실패: {e_db}")
+        except Exception as e_refresh:
+            print(f"토큰 갱신 중 오류 발생: {e_refresh}")
             return None
-    return None
+            
+    return creds
 
 # Jinja2 템플릿 설정
 templates = Jinja2Templates(directory=".")
@@ -1001,14 +1030,23 @@ def callback(request: Request, code: str = None, state: str = None, error: str =
         flow.fetch_token(code=code)
         credentials = flow.credentials
         
-        # 얻어낸 credentials(액세스 토큰, 리프레시 토큰 등)를 로컬 token.json에 저장
-        with open(TOKEN_FILE, "w") as token_file:
-            token_file.write(credentials.to_json())
+        # 얻어낸 credentials(액세스 토큰, 리프레시 토큰 등)를 로컬 파일 및 데이터베이스에 저장
         try:
-            os.chmod(TOKEN_FILE, 0o600)  # 보안 권한 설정 (소유자 전용 읽기/쓰기)
-        except Exception:
-            pass
-        
+            with open(TOKEN_FILE, "w") as token_file:
+                token_file.write(credentials.to_json())
+            try:
+                os.chmod(TOKEN_FILE, 0o600)
+            except Exception:
+                pass
+        except Exception as e_file:
+            print(f"토큰 로컬 저장 실패 (클라우드 환경일 수 있음): {e_file}")
+            
+        try:
+            db_adapter.save_user_profile("google_credentials", credentials.to_json())
+            print("[OAuth] Saved credentials to database.")
+        except Exception as e_db:
+            print(f"토큰 DB 저장 실패: {e_db}")
+            
         # google-api-python-client를 사용하여 사용자 정보 가져오기
         service = build("oauth2", "v2", credentials=credentials)
         user_info = service.userinfo().get().execute()
