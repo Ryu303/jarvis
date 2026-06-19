@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jarvis-os-cache-v4';
+const CACHE_NAME = 'jarvis-os-cache-v5';
 const ASSETS_TO_CACHE = [
   '/',
   '/static/icon-192.png',

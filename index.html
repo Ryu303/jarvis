@@ -2727,6 +2727,32 @@
         }
 
         // Web Speech API STT (음성 인식) 구현
+        // 마이크 권한을 안전하게 확인하고 필요한 경우에만 권한 팝업을 띄우는 헬퍼 함수
+        async function ensureMicrophonePermission() {
+            try {
+                if (navigator.permissions && navigator.permissions.query) {
+                    const status = await navigator.permissions.query({ name: 'microphone' });
+                    if (status.state === 'granted') {
+                        console.log("[STT] Microphone permission already granted.");
+                        return true;
+                    }
+                }
+            } catch (e) {
+                console.warn("[STT] Permissions API query not supported/failed, falling back to getUserMedia check:", e);
+            }
+
+            try {
+                console.log("[STT] Microphone permission not confirmed. Requesting getUserMedia...");
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                stream.getTracks().forEach(track => track.stop());
+                console.log("[STT] Microphone permission successfully obtained.");
+                return true;
+            } catch (err) {
+                console.error("[STT] Microphone permission request failed:", err);
+                return false;
+            }
+        }
+
         let recognition;
         let isSpeechRecognizing = false; // 중복 실행 방지를 위한 플래그 추가
         let retryWithoutRecorder = false; // 마이크 충돌 발생 시 우회 재시도 플래그
@@ -2734,8 +2760,13 @@
         async function startSpeechRecognition(skipRecorder = false) {
             stopAllJarvisVoices(); // 마이크 활성화 시 이전 자비스 음성 즉각 끊기
             
-            // 웨이크 워드 리스너를 즉시 중지하여 듀얼 SpeechRecognition 인스턴스 충돌 방지
-            stopWakeWordListening();
+            // 웨이크 워드 리스너가 동작 중이면 마이크 충돌을 피하기 위해 중지 완료 후 재기동 유도
+            if (isWakeWordListening) {
+                console.log("[STT] Wake word listener is active. Stopping it first to prevent conflict...");
+                shouldStartSTTAfterWakeWord = true;
+                stopWakeWordListening();
+                return;
+            }
 
             const voiceBtn = document.getElementById('voiceBtn');
             const input = document.getElementById('terminalInput');
@@ -2775,9 +2806,26 @@
 
             // WAVRecorder를 STT와 동시에 사용하면 모바일에서 마이크 스트림 충돌 발생.
             // STT 전용 모드: WAVRecorder 없이 SpeechRecognition만 사용하여 안정적인 음성 인식.
-            // (성문 등록은 별도 버튼의 독립 플로우에서만 WAVRecorder를 사용)
             lastRecordedWavBlob = null;
             activeWavRecorder = null;
+
+            // 마이크 권한 확인 (이미 권한이 있다면 getUserMedia를 호출하지 않아 스트림 끊김 현상 방지)
+            const hasPermission = await ensureMicrophonePermission();
+            if (!hasPermission) {
+                appendChatMessage('system', '❌ 마이크에 접근할 수 없습니다. 설정에서 마이크 권한을 허용해주세요.');
+                isSpeechRecognizing = false;
+                voiceBtn.innerText = '🎤 음성 입력';
+                voiceBtn.style.background = 'linear-gradient(135deg, #dc2626, #991b1b)';
+                voiceBtn.style.boxShadow = 'none';
+                jarvisSoundscape.setMuteForMic(false);
+                updateTerminalGlow(false);
+                return;
+            }
+
+            // 이전에 기동된 인스턴스가 있다면 안전하게 중지/해제
+            if (recognition) {
+                try { recognition.abort(); } catch(e) {}
+            }
 
             recognition = new SpeechRecognition();
             recognition.lang = 'ko-KR';
@@ -2888,24 +2936,6 @@
 
                 sendChatMessage();
             };
-
-            // Android PWA standalone 모드에서 Web Speech API가 마이크 권한을 자동으로 받지 못하는 문제 해결.
-            // getUserMedia로 명시적으로 마이크 권한을 PWA 컨텍스트에 획득한 후 스트림을 즉시 해제하고 STT 시작.
-            try {
-                const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                micStream.getTracks().forEach(track => track.stop()); // 권한 확인 후 즉시 해제
-                console.log("[STT] Microphone permission confirmed in PWA context.");
-            } catch (err) {
-                console.error("[STT] Microphone access denied:", err);
-                appendChatMessage('system', '❌ 마이크에 접근할 수 없습니다: ' + err.message + '\n\n홈화면 PWA 설정에서 마이크 권한을 허용해주세요.');
-                isSpeechRecognizing = false;
-                voiceBtn.innerText = '🎤 음성 입력';
-                voiceBtn.style.background = 'linear-gradient(135deg, #dc2626, #991b1b)';
-                voiceBtn.style.boxShadow = 'none';
-                jarvisSoundscape.setMuteForMic(false);
-                updateTerminalGlow(false);
-                return;
-            }
 
             try {
                 recognition.start();
