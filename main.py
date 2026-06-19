@@ -7,7 +7,7 @@ import numpy as np
 from email.mime.text import MIMEText
 import google.generativeai as genai
 from pydantic import BaseModel
-from datetime import datetime, time
+from datetime import datetime, time, timezone, timedelta
 from email.utils import parseaddr
 from email.header import decode_header, make_header
 from fastapi import FastAPI, Request, HTTPException, File, UploadFile, Form
@@ -20,7 +20,6 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request as GoogleRequest
-import datetime
 from datetime import timezone
 
 # Firebase Admin SDK 관련 패키지 로드
@@ -481,7 +480,7 @@ class FirestoreAdapter(DatabaseAdapter):
                 'title': title,
                 'message': message,
                 'read': 0,
-                'timestamp': datetime.datetime.now(datetime.timezone.utc)
+                'timestamp': datetime.now(timezone.utc)
             })
         except Exception as e:
             print(f"Error adding notification to Firestore: {e}")
@@ -498,7 +497,7 @@ class FirestoreAdapter(DatabaseAdapter):
                     "message": data.get('message'),
                     "timestamp": data.get('timestamp')
                 })
-            results.sort(key=lambda x: x['timestamp'] if x['timestamp'] else datetime.datetime.min)
+            results.sort(key=lambda x: x['timestamp'] if x['timestamp'] else datetime.min)
             for r in results:
                 ts = r["timestamp"]
                 r["timestamp"] = ts.astimezone().strftime("%Y-%m-%d %H:%M:%S") if ts else ""
@@ -533,7 +532,7 @@ class FirestoreAdapter(DatabaseAdapter):
             self.db.collection('messages').add({
                 'role': role,
                 'content': content,
-                'timestamp': datetime.datetime.now(datetime.timezone.utc)
+                'timestamp': datetime.now(timezone.utc)
             })
         except Exception as e:
             print(f"Error saving chat message to Firestore: {e}")
@@ -568,7 +567,7 @@ class FirestoreAdapter(DatabaseAdapter):
             doc_ref.set({
                 'features': json.dumps(features),
                 'label': label,
-                'timestamp': datetime.datetime.now(datetime.timezone.utc)
+                'timestamp': datetime.now(timezone.utc)
             })
             return doc_ref.id
         except Exception as e:
@@ -684,7 +683,7 @@ class FirestoreAdapter(DatabaseAdapter):
                 'client_name': client_name,
                 'structured_note': structured_note,
                 'docs_url': docs_url,
-                'timestamp': datetime.datetime.now(datetime.timezone.utc)
+                'timestamp': datetime.now(timezone.utc)
             })
             return "상담 일지가 성공적으로 데이터베이스에 저장되었습니다."
         except Exception as e:
@@ -694,7 +693,7 @@ class FirestoreAdapter(DatabaseAdapter):
         try:
             docs = self.db.collection('consultations').stream()
             results = []
-            today_date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+            today_date_str = datetime.now().strftime("%Y-%m-%d")
             for d in docs:
                 data = d.to_dict()
                 ts = data.get('timestamp')
@@ -723,7 +722,7 @@ class FirestoreAdapter(DatabaseAdapter):
                 'query': query,
                 'response': response,
                 'embedding': json.dumps(embedding),
-                'timestamp': datetime.datetime.now(datetime.timezone.utc)
+                'timestamp': datetime.now(timezone.utc)
             })
             print(f"[Semantic Memory] Saved conversation turn to Firestore.")
         except Exception as e:
@@ -2886,7 +2885,7 @@ def check_smart_plug_power() -> float:
 
 def background_monitor_loop():
     import time as time_module
-    from datetime import datetime, time as dt_time, timedelta
+    from datetime import datetime, time, timezone, timedelta as dt_time, timedelta
     
     print("[Monitor] Background thread initializing...")
     time_module.sleep(10)  # 서버 구동 후 초기 안정화 대기
@@ -3316,7 +3315,7 @@ class TaskOrchestrator:
         # Level 2 작업 수행
         steps_log.append("4단계 [Level 2]: 구글 캘린더에 상담 준비 세션 등록 중...")
         try:
-            from datetime import datetime, timedelta
+            from datetime import datetime, time, timezone, timedeltadelta
             start_time = (datetime.now() + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:00+09:00")
             end_time = (datetime.now() + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:00+09:00")
             cal_title = f"{keyword} 님과의 상담 세션"
@@ -3393,7 +3392,7 @@ class TaskOrchestrator:
         # Level 2 작업 수행
         steps_log.append("4단계 [Level 2]: 구글 캘린더에 회의 세션 등록 중...")
         try:
-            from datetime import datetime, timedelta
+            from datetime import datetime, time, timezone, timedeltadelta
             start_time = (datetime.now() + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:00+09:00")
             end_time = (datetime.now() + timedelta(hours=4)).strftime("%Y-%m-%dT%H:%M:00+09:00")
             cal_title = f"{keyword} 회의 세션"
