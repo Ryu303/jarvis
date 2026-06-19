@@ -2493,6 +2493,20 @@ def get_tts_text(text: str) -> str:
     return clean_text[:250] + "..."
 
 
+def get_embedding(text: str) -> list:
+    """Gemini API를 사용하여 텍스트 임베딩을 생성합니다."""
+    try:
+        response = genai.embed_content(
+            model="models/gemini-embedding-001",
+            content=text,
+            task_type="retrieval_query"
+        )
+        return response['embedding']
+    except Exception as e:
+        print(f"[Embedding Error] Failed to generate embedding: {e}")
+        return None
+
+
 def save_semantic_memory(query: str, response: str):
     """사용자 발화 및 자비스 답변을 임베딩하여 벡터 스토어에 장기 기억으로 누적합니다."""
     if len(query.strip()) < 5:
