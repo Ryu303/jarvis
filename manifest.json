@@ -13,5 +13,5 @@
   "background_color": "#0a0e17",
   "theme_color": "#00f2fe",
   "display": "fullscreen",
-  "orientation": "landscape"
+  "orientation": "any"
 }
